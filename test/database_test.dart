@@ -35,7 +35,38 @@ void main() {
 
     expect(quiche.tags, contains('Nested recipe'));
     expect(quiche.nutrition.calories, 412);
+    expect(quiche.ingredientCount, 7);
+    expect(quiche.directionCount, 4);
   });
+
+  test(
+    'recipe repository supports calorie sorting in both directions',
+    () async {
+      final database = AppDatabase.forTesting(NativeDatabase.memory());
+      final repositories = AppRepositories(database);
+      addTearDown(database.close);
+
+      await repositories.initialize();
+
+      final lowToHigh = await repositories.recipes
+          .watchRecipes(sortOrder: RecipeSortOrder.caloriesLowToHigh)
+          .first;
+      final highToLow = await repositories.recipes
+          .watchRecipes(sortOrder: RecipeSortOrder.caloriesHighToLow)
+          .first;
+
+      expect(lowToHigh.map((recipe) => recipe.name).toList(), [
+        'Weeknight Turkey Chili',
+        'Herbed Quiche Base',
+        'Greek Yogurt Pancakes',
+      ]);
+      expect(highToLow.map((recipe) => recipe.name).toList(), [
+        'Herbed Quiche Base',
+        'Weeknight Turkey Chili',
+        'Greek Yogurt Pancakes',
+      ]);
+    },
+  );
 
   test('recipe repository can create update and delete recipes', () async {
     final database = AppDatabase.forTesting(NativeDatabase.memory());
@@ -61,6 +92,24 @@ void main() {
           sodium: 520,
           sugar: 6,
         ),
+        ingredients: [
+          RecipeIngredientDraft(
+            quantity: '4',
+            unit: 'filets',
+            item: 'Salmon',
+            preparation: 'Pat dry',
+          ),
+          RecipeIngredientDraft(
+            quantity: '1',
+            unit: 'lb',
+            item: 'Potatoes',
+            preparation: 'Halved',
+          ),
+        ],
+        directions: [
+          'Toss potatoes with oil and roast.',
+          'Add salmon and finish until flaky.',
+        ],
       ),
     );
 
@@ -71,6 +120,8 @@ void main() {
 
     expect(created.isPinned, isTrue);
     expect(created.tags, contains('Dinner'));
+    expect(created.ingredientCount, 2);
+    expect(created.directionCount, 2);
 
     await repositories.recipes.saveRecipe(
       const RecipeDraft(
@@ -89,6 +140,25 @@ void main() {
           sodium: 480,
           sugar: 5,
         ),
+        ingredients: [
+          RecipeIngredientDraft(
+            quantity: '1',
+            unit: 'lb',
+            item: 'Potatoes',
+            preparation: 'Crisped first',
+          ),
+          RecipeIngredientDraft(
+            quantity: '5',
+            unit: 'filets',
+            item: 'Salmon',
+            preparation: 'Portioned',
+          ),
+        ],
+        directions: [
+          'Roast potatoes until browned.',
+          'Season salmon.',
+          'Nest salmon on the tray and roast until just cooked through.',
+        ],
       ),
       existingId: created.id,
     );
@@ -101,6 +171,18 @@ void main() {
     expect(updated.isPinned, isFalse);
     expect(updated.nutrition.calories, 430);
     expect(updated.tags, contains('Meal prep'));
+    expect(updated.ingredientCount, 2);
+    expect(updated.directionCount, 3);
+
+    final updatedDraft = await repositories.recipes.getRecipeDraft(created.id);
+    expect(updatedDraft.ingredients.first.item, 'Potatoes');
+    expect(updatedDraft.ingredients.last.item, 'Salmon');
+    expect(updatedDraft.ingredients.last.preparation, 'Portioned');
+    expect(updatedDraft.directions.first, 'Roast potatoes until browned.');
+    expect(
+      updatedDraft.directions.last,
+      'Nest salmon on the tray and roast until just cooked through.',
+    );
 
     await repositories.recipes.deleteRecipe(created.id);
 

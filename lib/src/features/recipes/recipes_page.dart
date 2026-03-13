@@ -5,8 +5,15 @@ import '../../core/mock_data.dart';
 import '../../data/repositories/app_repositories.dart';
 import '../shell/app_shell.dart';
 
-class RecipesPage extends StatelessWidget {
+class RecipesPage extends StatefulWidget {
   const RecipesPage({super.key});
+
+  @override
+  State<RecipesPage> createState() => _RecipesPageState();
+}
+
+class _RecipesPageState extends State<RecipesPage> {
+  RecipeSortOrder _sortOrder = RecipeSortOrder.caloriesLowToHigh;
 
   @override
   Widget build(BuildContext context) {
@@ -15,20 +22,26 @@ class RecipesPage extends StatelessWidget {
     return ShellScaffold(
       title: 'Recipes',
       subtitle:
-          'Save full recipes, create variations, nest recipes inside recipes, and keep nutrition updated per serving.',
+          'Save full recipes, create variations, scale them for real cooking, and keep nutrition organized per serving.',
       trailing: _RecipeActions(
+        sortOrder: _sortOrder,
         onAddPressed: () => _openEditor(context, repository),
+        onSortSelected: (sortOrder) {
+          setState(() {
+            _sortOrder = sortOrder;
+          });
+        },
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SectionTitle(
+          SectionTitle(
             title: 'Pinned and Recent',
             caption:
-                'Recipes now load from the local database and can be added, edited, and deleted from this screen.',
+                'Open a recipe to scale ingredients, review directions, or duplicate it into a variation. Sorted ${_sortOrder.label.toLowerCase()}.',
           ),
           StreamBuilder<List<RecipeSummary>>(
-            stream: repository.watchRecipes(),
+            stream: repository.watchRecipes(sortOrder: _sortOrder),
             builder: (context, snapshot) {
               final recipes = snapshot.data ?? const <RecipeSummary>[];
 
@@ -51,17 +64,24 @@ class RecipesPage extends StatelessWidget {
                             width: itemWidth,
                             child: _RecipeCard(
                               recipe: recipe,
+                              onTap: () => _openRecipeDetail(
+                                context,
+                                repository,
+                                recipe,
+                              ),
                               onEdit: () => _openEditor(
                                 context,
                                 repository,
                                 recipe: recipe,
                               ),
+                              onDuplicate: () =>
+                                  _duplicateRecipe(context, repository, recipe),
                               onDelete: () =>
                                   _deleteRecipe(context, repository, recipe),
                             ),
                           ),
                         )
-                        .toList(),
+                        .toList(growable: false),
                   );
                 },
               );
@@ -72,34 +92,122 @@ class RecipesPage extends StatelessWidget {
     );
   }
 
+  Future<void> _openRecipeDetail(
+    BuildContext context,
+    RecipesRepository repository,
+    RecipeSummary recipe,
+  ) async {
+    final draft = await repository.getRecipeDraft(recipe.id);
+    if (!context.mounted) {
+      return;
+    }
+
+    final action = await showModalBottomSheet<_RecipeDetailAction>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => RecipeDetailSheet(summary: recipe, draft: draft),
+    );
+
+    if (!context.mounted || action == null) {
+      return;
+    }
+
+    switch (action) {
+      case _RecipeDetailAction.edit:
+        await _openEditor(
+          context,
+          repository,
+          recipe: recipe,
+          initialDraft: draft,
+        );
+      case _RecipeDetailAction.duplicate:
+        await _openEditor(
+          context,
+          repository,
+          initialDraft: _duplicateDraft(draft),
+          saveAsNew: true,
+        );
+    }
+  }
+
   Future<void> _openEditor(
     BuildContext context,
     RecipesRepository repository, {
     RecipeSummary? recipe,
+    RecipeDraft? initialDraft,
+    bool saveAsNew = false,
   }) async {
-    final draft = await showModalBottomSheet<RecipeDraft>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (context) => RecipeEditorSheet(recipe: recipe),
-    );
-
-    if (draft == null || !context.mounted) {
+    final draft =
+        initialDraft ??
+        (recipe == null ? null : await repository.getRecipeDraft(recipe.id));
+    if (!context.mounted) {
       return;
     }
 
-    await repository.saveRecipe(draft, existingId: recipe?.id);
+    final result = await showModalBottomSheet<RecipeDraft>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => RecipeEditorSheet(
+        initialDraft: draft,
+        existingRecipeName: saveAsNew ? null : recipe?.name,
+      ),
+    );
+
+    if (result == null || !context.mounted) {
+      return;
+    }
+
+    await repository.saveRecipe(
+      result,
+      existingId: saveAsNew ? null : recipe?.id,
+    );
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            recipe == null
-                ? 'Recipe added locally.'
-                : 'Recipe updated locally.',
-          ),
+          content: Text(switch ((recipe != null, saveAsNew)) {
+            (false, _) => 'Recipe added locally.',
+            (true, true) => 'Recipe variation added locally.',
+            (true, false) => 'Recipe updated locally.',
+          }),
         ),
       );
     }
+  }
+
+  Future<void> _duplicateRecipe(
+    BuildContext context,
+    RecipesRepository repository,
+    RecipeSummary recipe,
+  ) async {
+    final draft = await repository.getRecipeDraft(recipe.id);
+    if (!context.mounted) {
+      return;
+    }
+
+    await _openEditor(
+      context,
+      repository,
+      initialDraft: _duplicateDraft(draft),
+      saveAsNew: true,
+    );
+  }
+
+  RecipeDraft _duplicateDraft(RecipeDraft draft) {
+    final versionLabel = draft.versionLabel.trim();
+    final duplicateLabel = versionLabel.isEmpty
+        ? 'Variation Copy'
+        : '$versionLabel Copy';
+
+    return draft.copyWith(
+      versionLabel: duplicateLabel,
+      tags: [...draft.tags, 'Variation']
+          .map((tag) => tag.trim())
+          .where((tag) => tag.isNotEmpty)
+          .toSet()
+          .toList(growable: false),
+    );
   }
 
   Future<void> _deleteRecipe(
@@ -141,9 +249,15 @@ class RecipesPage extends StatelessWidget {
 }
 
 class _RecipeActions extends StatelessWidget {
-  const _RecipeActions({required this.onAddPressed});
+  const _RecipeActions({
+    required this.sortOrder,
+    required this.onAddPressed,
+    required this.onSortSelected,
+  });
 
+  final RecipeSortOrder sortOrder;
   final VoidCallback onAddPressed;
+  final ValueChanged<RecipeSortOrder> onSortSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -157,7 +271,22 @@ class _RecipeActions extends StatelessWidget {
           icon: const Icon(Icons.add),
           label: const Text('Add recipe'),
         ),
-        const Chip(label: Text('Sort: Low to high')),
+        PopupMenuButton<RecipeSortOrder>(
+          initialValue: sortOrder,
+          onSelected: onSortSelected,
+          itemBuilder: (context) => RecipeSortOrder.values
+              .map(
+                (value) => PopupMenuItem<RecipeSortOrder>(
+                  value: value,
+                  child: Text(value.label),
+                ),
+              )
+              .toList(growable: false),
+          child: Chip(
+            avatar: const Icon(Icons.sort, size: 18),
+            label: Text('Sort: ${sortOrder.shortLabel}'),
+          ),
+        ),
         const Chip(label: Text('Import URL')),
         const Chip(label: Text('OCR screenshot')),
       ],
@@ -168,12 +297,16 @@ class _RecipeActions extends StatelessWidget {
 class _RecipeCard extends StatelessWidget {
   const _RecipeCard({
     required this.recipe,
+    required this.onTap,
     required this.onEdit,
+    required this.onDuplicate,
     required this.onDelete,
   });
 
   final RecipeSummary recipe;
+  final VoidCallback onTap;
   final VoidCallback onEdit;
+  final VoidCallback onDuplicate;
   final VoidCallback onDelete;
 
   @override
@@ -181,69 +314,397 @@ class _RecipeCard extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(22),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(recipe.name, style: theme.textTheme.titleLarge),
-                ),
-                if (recipe.isPinned)
-                  const Padding(
-                    padding: EdgeInsets.only(right: 6),
-                    child: Icon(Icons.push_pin, color: Color(0xFFD87B42)),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(22),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(recipe.name, style: theme.textTheme.titleLarge),
                   ),
-                PopupMenuButton<_RecipeMenuAction>(
-                  onSelected: (action) {
-                    switch (action) {
-                      case _RecipeMenuAction.edit:
-                        onEdit();
-                      case _RecipeMenuAction.delete:
-                        onDelete();
-                    }
-                  },
-                  itemBuilder: (context) => const [
-                    PopupMenuItem(
-                      value: _RecipeMenuAction.edit,
-                      child: Text('Edit'),
+                  if (recipe.isPinned)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 6),
+                      child: Icon(Icons.push_pin, color: Color(0xFFD87B42)),
                     ),
-                    PopupMenuItem(
-                      value: _RecipeMenuAction.delete,
-                      child: Text('Delete'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(recipe.versionLabel, style: theme.textTheme.labelLarge),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: recipe.tags
-                  .map((tag) => Chip(label: Text(tag)))
-                  .toList(growable: false),
-            ),
-            const SizedBox(height: 18),
-            _NutritionGrid(
-              nutrition: recipe.nutrition,
-              servings: recipe.servings,
-            ),
-            const SizedBox(height: 18),
-            Text(recipe.note, style: theme.textTheme.bodyMedium),
-          ],
+                  PopupMenuButton<_RecipeMenuAction>(
+                    onSelected: (action) {
+                      switch (action) {
+                        case _RecipeMenuAction.edit:
+                          onEdit();
+                        case _RecipeMenuAction.duplicate:
+                          onDuplicate();
+                        case _RecipeMenuAction.delete:
+                          onDelete();
+                      }
+                    },
+                    itemBuilder: (context) => const [
+                      PopupMenuItem(
+                        value: _RecipeMenuAction.edit,
+                        child: Text('Edit'),
+                      ),
+                      PopupMenuItem(
+                        value: _RecipeMenuAction.duplicate,
+                        child: Text('Duplicate variation'),
+                      ),
+                      PopupMenuItem(
+                        value: _RecipeMenuAction.delete,
+                        child: Text('Delete'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(recipe.versionLabel, style: theme.textTheme.labelLarge),
+              const SizedBox(height: 8),
+              Text(
+                '${recipe.ingredientCount} ingredients • ${recipe.directionCount} directions',
+                style: theme.textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: recipe.tags
+                    .map((tag) => Chip(label: Text(tag)))
+                    .toList(growable: false),
+              ),
+              const SizedBox(height: 18),
+              _NutritionGrid(
+                nutrition: recipe.nutrition,
+                servings: recipe.servings,
+              ),
+              const SizedBox(height: 18),
+              Text(recipe.note, style: theme.textTheme.bodyMedium),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-enum _RecipeMenuAction { edit, delete }
+enum _RecipeMenuAction { edit, duplicate, delete }
+
+enum _RecipeDetailAction { edit, duplicate }
+
+class RecipeDetailSheet extends StatefulWidget {
+  const RecipeDetailSheet({
+    super.key,
+    required this.summary,
+    required this.draft,
+  });
+
+  final RecipeSummary summary;
+  final RecipeDraft draft;
+
+  @override
+  State<RecipeDetailSheet> createState() => _RecipeDetailSheetState();
+}
+
+class _RecipeDetailSheetState extends State<RecipeDetailSheet> {
+  double _scaleFactor = 1;
+
+  @override
+  Widget build(BuildContext context) {
+    final viewInsets = MediaQuery.viewInsetsOf(context);
+    final theme = Theme.of(context);
+    final scaledServings = widget.summary.servings * _scaleFactor;
+    final batchNutrition = _scaledBatchNutrition();
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + viewInsets.bottom),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.summary.name,
+                        style: theme.textTheme.headlineMedium,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        widget.summary.versionLabel,
+                        style: theme.textTheme.titleMedium,
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: widget.summary.tags
+                  .map((tag) => Chip(label: Text(tag)))
+                  .toList(growable: false),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => Navigator.of(
+                      context,
+                    ).pop(_RecipeDetailAction.duplicate),
+                    icon: const Icon(Icons.copy_all_outlined),
+                    label: const Text('Duplicate variation'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () =>
+                        Navigator.of(context).pop(_RecipeDetailAction.edit),
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('Edit recipe'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _FormSection(
+              title: 'Scale',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: const [0.5, 1.0, 2.0, 3.0]
+                        .map((factor) => _ScaleChip(factor: factor))
+                        .toList(growable: false),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      IconButton.filledTonal(
+                        onPressed: () => _adjustScale(-0.25),
+                        icon: const Icon(Icons.remove),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          '${_RecipeScaling.formatDecimal(_scaleFactor)}x batch • ${_RecipeScaling.formatDecimal(scaledServings)} servings',
+                          style: theme.textTheme.titleMedium,
+                        ),
+                      ),
+                      IconButton.filledTonal(
+                        onPressed: () => _adjustScale(0.25),
+                        icon: const Icon(Icons.add),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Per-serving nutrition stays constant. Batch totals scale automatically.',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _FormSection(
+              title: 'Nutrition',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Per serving', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 12),
+                  _NutritionGrid(
+                    nutrition: widget.summary.nutrition,
+                    servings: widget.summary.servings,
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    'Scaled batch total',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 12),
+                  _BatchNutritionGrid(
+                    nutrition: batchNutrition,
+                    servingsLabel:
+                        '${_RecipeScaling.formatDecimal(scaledServings)} servings',
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _FormSection(
+              title: 'Ingredients',
+              child: Column(
+                children: [
+                  for (
+                    var index = 0;
+                    index < widget.draft.ingredients.length;
+                    index++
+                  )
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _DetailListCard(
+                        indexLabel: '${index + 1}',
+                        title: _RecipeScaling.formatIngredient(
+                          widget.draft.ingredients[index],
+                          _scaleFactor,
+                        ),
+                        subtitle: widget.draft.ingredients[index].preparation
+                            .trim(),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _FormSection(
+              title: 'Directions',
+              child: Column(
+                children: [
+                  for (
+                    var index = 0;
+                    index < widget.draft.directions.length;
+                    index++
+                  )
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _DetailListCard(
+                        indexLabel: '${index + 1}',
+                        title: widget.draft.directions[index],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (widget.draft.note.trim().isNotEmpty) ...[
+              const SizedBox(height: 16),
+              _FormSection(
+                title: 'Notes',
+                child: Text(
+                  widget.draft.note,
+                  style: theme.textTheme.bodyLarge,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  NutritionSnapshot _scaledBatchNutrition() {
+    final totalMultiplier = widget.summary.servings * _scaleFactor;
+    final base = widget.summary.nutrition;
+
+    int scale(int value) => (value * totalMultiplier).round();
+
+    return NutritionSnapshot(
+      calories: scale(base.calories),
+      protein: scale(base.protein),
+      carbs: scale(base.carbs),
+      fat: scale(base.fat),
+      fiber: scale(base.fiber),
+      sodium: scale(base.sodium),
+      sugar: scale(base.sugar),
+    );
+  }
+
+  void _adjustScale(double delta) {
+    _setScale(_scaleFactor + delta);
+  }
+
+  void _setScale(double next) {
+    setState(() {
+      _scaleFactor = next.clamp(0.25, 8.0);
+    });
+  }
+}
+
+class _ScaleChip extends StatelessWidget {
+  const _ScaleChip({required this.factor});
+
+  final double factor;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.findAncestorStateOfType<_RecipeDetailSheetState>();
+    final isSelected = state?._scaleFactor == factor;
+
+    return ChoiceChip(
+      label: Text('${_RecipeScaling.formatDecimal(factor)}x'),
+      selected: isSelected,
+      onSelected: (_) => state?._setScale(factor),
+    );
+  }
+}
+
+class _DetailListCard extends StatelessWidget {
+  const _DetailListCard({
+    required this.indexLabel,
+    required this.title,
+    this.subtitle = '',
+  });
+
+  final String indexLabel;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0E6D7),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              radius: 16,
+              backgroundColor: const Color(0xFFD87B42),
+              foregroundColor: Colors.white,
+              child: Text(indexLabel),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: Theme.of(context).textTheme.titleMedium),
+                  if (subtitle.trim().isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      subtitle,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _NutritionGrid extends StatelessWidget {
   const _NutritionGrid({required this.nutrition, required this.servings});
@@ -266,36 +727,78 @@ class _NutritionGrid extends StatelessWidget {
       spacing: 12,
       runSpacing: 12,
       children: values
-          .map(
-            (entry) => Container(
-              width: 112,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF0E6D7),
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(entry.$1, style: Theme.of(context).textTheme.bodyMedium),
-                  const SizedBox(height: 6),
-                  Text(
-                    entry.$2,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ],
-              ),
-            ),
-          )
+          .map((entry) => _MetricCard(label: entry.$1, value: entry.$2))
           .toList(growable: false),
     );
   }
 }
 
-class RecipeEditorSheet extends StatefulWidget {
-  const RecipeEditorSheet({super.key, this.recipe});
+class _BatchNutritionGrid extends StatelessWidget {
+  const _BatchNutritionGrid({
+    required this.nutrition,
+    required this.servingsLabel,
+  });
 
-  final RecipeSummary? recipe;
+  final NutritionSnapshot nutrition;
+  final String servingsLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final values = [
+      ('Calories', nutrition.calories.toString()),
+      ('Protein', '${nutrition.protein}g'),
+      ('Carbs', '${nutrition.carbs}g'),
+      ('Fat', '${nutrition.fat}g'),
+      ('Fiber', '${nutrition.fiber}g'),
+      ('Yield', servingsLabel),
+    ];
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: values
+          .map((entry) => _MetricCard(label: entry.$1, value: entry.$2))
+          .toList(growable: false),
+    );
+  }
+}
+
+class _MetricCard extends StatelessWidget {
+  const _MetricCard({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 112,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0E6D7),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.bodyMedium),
+          const SizedBox(height: 6),
+          Text(value, style: Theme.of(context).textTheme.titleMedium),
+        ],
+      ),
+    );
+  }
+}
+
+class RecipeEditorSheet extends StatefulWidget {
+  const RecipeEditorSheet({
+    super.key,
+    this.initialDraft,
+    this.existingRecipeName,
+  });
+
+  final RecipeDraft? initialDraft;
+  final String? existingRecipeName;
 
   @override
   State<RecipeEditorSheet> createState() => _RecipeEditorSheetState();
@@ -316,44 +819,55 @@ class _RecipeEditorSheetState extends State<RecipeEditorSheet> {
   late final TextEditingController _sodiumController;
   late final TextEditingController _sugarController;
   late bool _isPinned;
+  late final List<_IngredientControllers> _ingredients;
+  late final List<TextEditingController> _directions;
 
   @override
   void initState() {
     super.initState();
-    final recipe = widget.recipe;
-    _titleController = TextEditingController(text: recipe?.name ?? '');
-    _versionController = TextEditingController(
-      text: recipe?.versionLabel ?? '',
-    );
+    final draft = widget.initialDraft;
+    _titleController = TextEditingController(text: draft?.name ?? '');
+    _versionController = TextEditingController(text: draft?.versionLabel ?? '');
     _servingsController = TextEditingController(
-      text: recipe?.servings.toString() ?? '1',
+      text: draft?.servings.toString() ?? '1',
     );
-    _tagsController = TextEditingController(
-      text: recipe?.tags.join(', ') ?? '',
-    );
-    _notesController = TextEditingController(text: recipe?.note ?? '');
+    _tagsController = TextEditingController(text: draft?.tags.join(', ') ?? '');
+    _notesController = TextEditingController(text: draft?.note ?? '');
     _caloriesController = TextEditingController(
-      text: recipe?.nutrition.calories.toString() ?? '0',
+      text: draft?.nutrition.calories.toString() ?? '0',
     );
     _proteinController = TextEditingController(
-      text: recipe?.nutrition.protein.toString() ?? '0',
+      text: draft?.nutrition.protein.toString() ?? '0',
     );
     _carbsController = TextEditingController(
-      text: recipe?.nutrition.carbs.toString() ?? '0',
+      text: draft?.nutrition.carbs.toString() ?? '0',
     );
     _fatController = TextEditingController(
-      text: recipe?.nutrition.fat.toString() ?? '0',
+      text: draft?.nutrition.fat.toString() ?? '0',
     );
     _fiberController = TextEditingController(
-      text: recipe?.nutrition.fiber.toString() ?? '0',
+      text: draft?.nutrition.fiber.toString() ?? '0',
     );
     _sodiumController = TextEditingController(
-      text: recipe?.nutrition.sodium.toString() ?? '0',
+      text: draft?.nutrition.sodium.toString() ?? '0',
     );
     _sugarController = TextEditingController(
-      text: recipe?.nutrition.sugar.toString() ?? '0',
+      text: draft?.nutrition.sugar.toString() ?? '0',
     );
-    _isPinned = recipe?.isPinned ?? false;
+    _isPinned = draft?.isPinned ?? false;
+    _ingredients = (draft?.ingredients ?? const <RecipeIngredientDraft>[])
+        .map(_IngredientControllers.fromDraft)
+        .toList(growable: true);
+    _directions = (draft?.directions ?? const <String>[])
+        .map((direction) => TextEditingController(text: direction))
+        .toList(growable: true);
+
+    if (_ingredients.isEmpty) {
+      _ingredients.add(_IngredientControllers.empty());
+    }
+    if (_directions.isEmpty) {
+      _directions.add(TextEditingController());
+    }
   }
 
   @override
@@ -370,6 +884,12 @@ class _RecipeEditorSheetState extends State<RecipeEditorSheet> {
     _fiberController.dispose();
     _sodiumController.dispose();
     _sugarController.dispose();
+    for (final ingredient in _ingredients) {
+      ingredient.dispose();
+    }
+    for (final direction in _directions) {
+      direction.dispose();
+    }
     super.dispose();
   }
 
@@ -390,7 +910,9 @@ class _RecipeEditorSheetState extends State<RecipeEditorSheet> {
                 children: [
                   Expanded(
                     child: Text(
-                      widget.recipe == null ? 'Add Recipe' : 'Edit Recipe',
+                      widget.initialDraft == null
+                          ? 'Add Recipe'
+                          : 'Edit Recipe',
                       style: theme.textTheme.headlineMedium,
                     ),
                   ),
@@ -402,7 +924,9 @@ class _RecipeEditorSheetState extends State<RecipeEditorSheet> {
               ),
               const SizedBox(height: 8),
               Text(
-                'This editor writes directly to the local Drift database.',
+                widget.existingRecipeName == null
+                    ? 'Create a full recipe entry with ingredients, directions, nutrition, and variation labels.'
+                    : 'Updating ${widget.existingRecipeName} in the local Drift database.',
                 style: theme.textTheme.bodyMedium,
               ),
               const SizedBox(height: 20),
@@ -452,6 +976,66 @@ class _RecipeEditorSheetState extends State<RecipeEditorSheet> {
                       minLines: 3,
                       maxLines: 5,
                       decoration: const InputDecoration(labelText: 'Notes'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _FormSection(
+                title: 'Ingredients',
+                child: Column(
+                  children: [
+                    for (var index = 0; index < _ingredients.length; index++)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _IngredientEditorRow(
+                          index: index,
+                          controllers: _ingredients[index],
+                          canRemove: _ingredients.length > 1,
+                          canMoveUp: index > 0,
+                          canMoveDown: index < _ingredients.length - 1,
+                          onRemove: () => _removeIngredient(index),
+                          onMoveUp: () => _moveIngredient(index, index - 1),
+                          onMoveDown: () => _moveIngredient(index, index + 1),
+                        ),
+                      ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: _addIngredient,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add ingredient'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _FormSection(
+                title: 'Directions',
+                child: Column(
+                  children: [
+                    for (var index = 0; index < _directions.length; index++)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _DirectionEditorRow(
+                          index: index,
+                          controller: _directions[index],
+                          canRemove: _directions.length > 1,
+                          canMoveUp: index > 0,
+                          canMoveDown: index < _directions.length - 1,
+                          onRemove: () => _removeDirection(index),
+                          onMoveUp: () => _moveDirection(index, index - 1),
+                          onMoveDown: () => _moveDirection(index, index + 1),
+                        ),
+                      ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: _addDirection,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add direction'),
+                      ),
                     ),
                   ],
                 ),
@@ -522,10 +1106,67 @@ class _RecipeEditorSheetState extends State<RecipeEditorSheet> {
     return null;
   }
 
+  void _addIngredient() {
+    setState(() {
+      _ingredients.add(_IngredientControllers.empty());
+    });
+  }
+
+  void _removeIngredient(int index) {
+    setState(() {
+      final removed = _ingredients.removeAt(index);
+      removed.dispose();
+    });
+  }
+
+  void _moveIngredient(int from, int to) {
+    if (to < 0 || to >= _ingredients.length) {
+      return;
+    }
+
+    setState(() {
+      final item = _ingredients.removeAt(from);
+      _ingredients.insert(to, item);
+    });
+  }
+
+  void _addDirection() {
+    setState(() {
+      _directions.add(TextEditingController());
+    });
+  }
+
+  void _removeDirection(int index) {
+    setState(() {
+      final removed = _directions.removeAt(index);
+      removed.dispose();
+    });
+  }
+
+  void _moveDirection(int from, int to) {
+    if (to < 0 || to >= _directions.length) {
+      return;
+    }
+
+    setState(() {
+      final item = _directions.removeAt(from);
+      _directions.insert(to, item);
+    });
+  }
+
   void _submit() {
     if (!_formKey.currentState!.validate()) {
       return;
     }
+
+    final ingredients = _ingredients
+        .map((ingredient) => ingredient.toDraft())
+        .where((ingredient) => ingredient.item.trim().isNotEmpty)
+        .toList(growable: false);
+    final directions = _directions
+        .map((controller) => controller.text.trim())
+        .where((instruction) => instruction.isNotEmpty)
+        .toList(growable: false);
 
     Navigator.of(context).pop(
       RecipeDraft(
@@ -548,6 +1189,8 @@ class _RecipeEditorSheetState extends State<RecipeEditorSheet> {
           sodium: int.tryParse(_sodiumController.text) ?? 0,
           sugar: int.tryParse(_sugarController.text) ?? 0,
         ),
+        ingredients: ingredients,
+        directions: directions,
       ),
     );
   }
@@ -583,6 +1226,161 @@ class _FormSection extends StatelessWidget {
   }
 }
 
+class _IngredientEditorRow extends StatelessWidget {
+  const _IngredientEditorRow({
+    required this.index,
+    required this.controllers,
+    required this.canRemove,
+    required this.canMoveUp,
+    required this.canMoveDown,
+    required this.onRemove,
+    required this.onMoveUp,
+    required this.onMoveDown,
+  });
+
+  final int index;
+  final _IngredientControllers controllers;
+  final bool canRemove;
+  final bool canMoveUp;
+  final bool canMoveDown;
+  final VoidCallback onRemove;
+  final VoidCallback onMoveUp;
+  final VoidCallback onMoveDown;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0E6D7),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(child: Text('Ingredient ${index + 1}')),
+                IconButton(
+                  onPressed: canMoveUp ? onMoveUp : null,
+                  icon: const Icon(Icons.arrow_upward),
+                ),
+                IconButton(
+                  onPressed: canMoveDown ? onMoveDown : null,
+                  icon: const Icon(Icons.arrow_downward),
+                ),
+                if (canRemove)
+                  IconButton(
+                    onPressed: onRemove,
+                    icon: const Icon(Icons.delete_outline),
+                  ),
+              ],
+            ),
+            Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: TextFormField(
+                    controller: controllers.quantity,
+                    decoration: const InputDecoration(labelText: 'Qty'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: TextFormField(
+                    controller: controllers.unit,
+                    decoration: const InputDecoration(labelText: 'Unit'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 5,
+                  child: TextFormField(
+                    controller: controllers.item,
+                    decoration: const InputDecoration(labelText: 'Ingredient'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: controllers.preparation,
+              decoration: const InputDecoration(
+                labelText: 'Preparation note',
+                hintText: 'Diced, softened, drained, etc.',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DirectionEditorRow extends StatelessWidget {
+  const _DirectionEditorRow({
+    required this.index,
+    required this.controller,
+    required this.canRemove,
+    required this.canMoveUp,
+    required this.canMoveDown,
+    required this.onRemove,
+    required this.onMoveUp,
+    required this.onMoveDown,
+  });
+
+  final int index;
+  final TextEditingController controller;
+  final bool canRemove;
+  final bool canMoveUp;
+  final bool canMoveDown;
+  final VoidCallback onRemove;
+  final VoidCallback onMoveUp;
+  final VoidCallback onMoveDown;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0E6D7),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(child: Text('Step ${index + 1}')),
+                IconButton(
+                  onPressed: canMoveUp ? onMoveUp : null,
+                  icon: const Icon(Icons.arrow_upward),
+                ),
+                IconButton(
+                  onPressed: canMoveDown ? onMoveDown : null,
+                  icon: const Icon(Icons.arrow_downward),
+                ),
+                if (canRemove)
+                  IconButton(
+                    onPressed: onRemove,
+                    icon: const Icon(Icons.delete_outline),
+                  ),
+              ],
+            ),
+            TextFormField(
+              controller: controller,
+              minLines: 2,
+              maxLines: 4,
+              decoration: const InputDecoration(labelText: 'Instruction'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _MetricField extends StatelessWidget {
   const _MetricField({required this.controller, required this.label});
 
@@ -599,5 +1397,147 @@ class _MetricField extends StatelessWidget {
         decoration: InputDecoration(labelText: label),
       ),
     );
+  }
+}
+
+class _IngredientControllers {
+  _IngredientControllers({
+    required this.quantity,
+    required this.unit,
+    required this.item,
+    required this.preparation,
+  });
+
+  factory _IngredientControllers.empty() {
+    return _IngredientControllers(
+      quantity: TextEditingController(),
+      unit: TextEditingController(),
+      item: TextEditingController(),
+      preparation: TextEditingController(),
+    );
+  }
+
+  factory _IngredientControllers.fromDraft(RecipeIngredientDraft draft) {
+    return _IngredientControllers(
+      quantity: TextEditingController(text: draft.quantity),
+      unit: TextEditingController(text: draft.unit),
+      item: TextEditingController(text: draft.item),
+      preparation: TextEditingController(text: draft.preparation),
+    );
+  }
+
+  final TextEditingController quantity;
+  final TextEditingController unit;
+  final TextEditingController item;
+  final TextEditingController preparation;
+
+  RecipeIngredientDraft toDraft() {
+    return RecipeIngredientDraft(
+      quantity: quantity.text.trim(),
+      unit: unit.text.trim(),
+      item: item.text.trim(),
+      preparation: preparation.text.trim(),
+    );
+  }
+
+  void dispose() {
+    quantity.dispose();
+    unit.dispose();
+    item.dispose();
+    preparation.dispose();
+  }
+}
+
+extension on RecipeSortOrder {
+  String get label => switch (this) {
+    RecipeSortOrder.caloriesLowToHigh => 'Calories: Low to High',
+    RecipeSortOrder.caloriesHighToLow => 'Calories: High to Low',
+  };
+
+  String get shortLabel => switch (this) {
+    RecipeSortOrder.caloriesLowToHigh => 'Low to High',
+    RecipeSortOrder.caloriesHighToLow => 'High to Low',
+  };
+}
+
+abstract final class _RecipeScaling {
+  static String formatIngredient(
+    RecipeIngredientDraft ingredient,
+    double factor,
+  ) {
+    final scaledQuantity = formatQuantity(ingredient.quantity, factor);
+    final parts = [
+      if (scaledQuantity.isNotEmpty) scaledQuantity,
+      if (ingredient.unit.trim().isNotEmpty) ingredient.unit.trim(),
+      ingredient.item.trim(),
+    ];
+
+    return parts.where((part) => part.isNotEmpty).join(' ');
+  }
+
+  static String formatQuantity(String rawQuantity, double factor) {
+    final trimmed = rawQuantity.trim();
+    if (trimmed.isEmpty) {
+      return '';
+    }
+
+    final parsed = tryParseQuantity(trimmed);
+    if (parsed == null) {
+      return trimmed;
+    }
+
+    return formatDecimal(parsed * factor);
+  }
+
+  static double? tryParseQuantity(String rawQuantity) {
+    final trimmed = rawQuantity.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+
+    if (trimmed.contains(' ')) {
+      final parts = trimmed.split(RegExp(r'\s+'));
+      if (parts.length == 2) {
+        final whole = double.tryParse(parts[0]);
+        final fraction = _parseFraction(parts[1]);
+        if (whole != null && fraction != null) {
+          return whole + fraction;
+        }
+      }
+    }
+
+    final fraction = _parseFraction(trimmed);
+    if (fraction != null) {
+      return fraction;
+    }
+
+    return double.tryParse(trimmed);
+  }
+
+  static double? _parseFraction(String value) {
+    final parts = value.split('/');
+    if (parts.length != 2) {
+      return null;
+    }
+
+    final numerator = double.tryParse(parts[0]);
+    final denominator = double.tryParse(parts[1]);
+    if (numerator == null || denominator == null || denominator == 0) {
+      return null;
+    }
+
+    return numerator / denominator;
+  }
+
+  static String formatDecimal(double value) {
+    final rounded = value.roundToDouble();
+    if ((value - rounded).abs() < 0.001) {
+      return rounded.toInt().toString();
+    }
+
+    return value
+        .toStringAsFixed(2)
+        .replaceFirst(RegExp(r'0+$'), '')
+        .replaceFirst(RegExp(r'\.$'), '');
   }
 }

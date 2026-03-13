@@ -38,6 +38,23 @@ class RecipeTags extends Table {
   IntColumn get position => integer()();
 }
 
+class RecipeIngredients extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get recipeId => text().references(Recipes, #id)();
+  IntColumn get position => integer()();
+  TextColumn get quantity => text()();
+  TextColumn get unit => text()();
+  TextColumn get item => text()();
+  TextColumn get preparation => text()();
+}
+
+class RecipeDirections extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get recipeId => text().references(Recipes, #id)();
+  IntColumn get position => integer()();
+  TextColumn get instruction => text()();
+}
+
 class PantryItemsTable extends Table {
   TextColumn get id => text()();
   TextColumn get title => text()();
@@ -110,6 +127,8 @@ class DailyGoalsTable extends Table {
   tables: [
     Recipes,
     RecipeTags,
+    RecipeIngredients,
+    RecipeDirections,
     PantryItemsTable,
     GrocerySectionsTable,
     GroceryItemsTable,
@@ -124,7 +143,20 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (m) async {
+      await m.createAll();
+    },
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        await m.createTable(recipeIngredients);
+        await m.createTable(recipeDirections);
+      }
+    },
+  );
 
   Future<void> seedIfEmpty() async {
     final existingRecipes = await select(recipes).get();
@@ -166,6 +198,40 @@ class AppDatabase extends _$AppDatabase {
               recipeId: recipeId,
               label: recipe.tags[tagIndex],
               position: tagIndex,
+            ),
+          );
+        }
+
+        final ingredients = SeedData.recipeIngredients[recipeId] ?? const [];
+        for (
+          var ingredientIndex = 0;
+          ingredientIndex < ingredients.length;
+          ingredientIndex++
+        ) {
+          final ingredient = ingredients[ingredientIndex];
+          await into(recipeIngredients).insert(
+            RecipeIngredientsCompanion.insert(
+              recipeId: recipeId,
+              position: ingredientIndex,
+              quantity: ingredient.quantity,
+              unit: ingredient.unit,
+              item: ingredient.item,
+              preparation: ingredient.preparation,
+            ),
+          );
+        }
+
+        final directions = SeedData.recipeDirections[recipeId] ?? const [];
+        for (
+          var directionIndex = 0;
+          directionIndex < directions.length;
+          directionIndex++
+        ) {
+          await into(recipeDirections).insert(
+            RecipeDirectionsCompanion.insert(
+              recipeId: recipeId,
+              position: directionIndex,
+              instruction: directions[directionIndex],
             ),
           );
         }

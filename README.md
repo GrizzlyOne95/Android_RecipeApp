@@ -9,6 +9,8 @@ This repository now includes:
 - A working Flutter project scaffold for Android and iOS.
 - A real local SQLite database layer implemented with Drift.
 - Android emulator-ready local setup on this Windows workstation.
+- Local recipe CRUD with persisted ingredients and directions.
+- Recipe detail files with scaling, calorie sorting, and variation duplication.
 - An adaptive mobile shell with the four primary tabs:
   - Recipes
   - Grocery List
@@ -48,7 +50,7 @@ emulator -avd NutriChef_Emulator
 
 ## Near-Term Build Plan
 
-1. Add CRUD flows and forms on top of the local database.
+1. Link recipe ingredients to pantry items and nested recipes.
 2. Add optional Firebase auth and cloud sync.
 3. Add barcode scanning and nutrition import.
 4. Add recipe import from URL, text, and OCR screenshots.

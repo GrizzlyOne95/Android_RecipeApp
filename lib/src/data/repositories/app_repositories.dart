@@ -27,55 +27,140 @@ class RecipesRepository {
 
   final AppDatabase _database;
 
-  Stream<List<RecipeSummary>> watchRecipes() {
+  Stream<List<RecipeSummary>> watchRecipes({
+    RecipeSortOrder sortOrder = RecipeSortOrder.caloriesLowToHigh,
+  }) {
     final recipeQuery =
         (_database.select(_database.recipes)..orderBy([
               (table) => OrderingTerm(
                 expression: table.isPinned,
                 mode: OrderingMode.desc,
               ),
-              (table) => OrderingTerm(expression: table.sortCalories),
+              (table) => OrderingTerm(
+                expression: table.sortCalories,
+                mode: switch (sortOrder) {
+                  RecipeSortOrder.caloriesLowToHigh => OrderingMode.asc,
+                  RecipeSortOrder.caloriesHighToLow => OrderingMode.desc,
+                },
+              ),
+              (table) => OrderingTerm(
+                expression: table.updatedAt,
+                mode: OrderingMode.desc,
+              ),
             ]))
             .watch();
 
     final tagQuery = _database.select(_database.recipeTags).watch();
+    final ingredientQuery = _database
+        .select(_database.recipeIngredients)
+        .watch();
+    final directionQuery = _database.select(_database.recipeDirections).watch();
 
-    return recipeQuery.combineLatest(tagQuery, (recipes, tags) {
-      return recipes
-          .map((recipe) {
-            final recipeTags =
-                tags.where((tag) => tag.recipeId == recipe.id).toList()..sort(
-                  (left, right) => left.position.compareTo(right.position),
+    return recipeQuery
+        .combineLatest3(tagQuery, ingredientQuery, (
+          recipes,
+          tags,
+          ingredients,
+        ) {
+          return (recipes, tags, ingredients);
+        })
+        .combineLatest(directionQuery, (combined, directions) {
+          final recipes = combined.$1;
+          final tags = combined.$2;
+          final ingredients = combined.$3;
+
+          return recipes
+              .map((recipe) {
+                final recipeTags =
+                    tags.where((tag) => tag.recipeId == recipe.id).toList()
+                      ..sort(
+                        (left, right) =>
+                            left.position.compareTo(right.position),
+                      );
+
+                return RecipeSummary(
+                  id: recipe.id,
+                  name: recipe.title,
+                  versionLabel: recipe.versionLabel ?? 'Base version',
+                  servings: recipe.servings,
+                  nutrition: NutritionSnapshot(
+                    calories: recipe.calories,
+                    protein: recipe.protein,
+                    carbs: recipe.carbs,
+                    fat: recipe.fat,
+                    fiber: recipe.fiber,
+                    sodium: recipe.sodium,
+                    sugar: recipe.sugar,
+                  ),
+                  tags: recipeTags.map((tag) => tag.label).toList(),
+                  note: recipe.notes,
+                  isPinned: recipe.isPinned,
+                  sortCalories: recipe.sortCalories,
+                  ingredientCount: ingredients
+                      .where((ingredient) => ingredient.recipeId == recipe.id)
+                      .length,
+                  directionCount: directions
+                      .where((direction) => direction.recipeId == recipe.id)
+                      .length,
                 );
-
-            return RecipeSummary(
-              id: recipe.id,
-              name: recipe.title,
-              versionLabel: recipe.versionLabel ?? 'Base version',
-              servings: recipe.servings,
-              nutrition: NutritionSnapshot(
-                calories: recipe.calories,
-                protein: recipe.protein,
-                carbs: recipe.carbs,
-                fat: recipe.fat,
-                fiber: recipe.fiber,
-                sodium: recipe.sodium,
-                sugar: recipe.sugar,
-              ),
-              tags: recipeTags.map((tag) => tag.label).toList(),
-              note: recipe.notes,
-              isPinned: recipe.isPinned,
-              sortCalories: recipe.sortCalories,
-            );
-          })
-          .toList(growable: false);
-    });
+              })
+              .toList(growable: false);
+        });
   }
 
-  Future<void> saveRecipe(
-    RecipeDraft draft, {
-    String? existingId,
-  }) async {
+  Future<RecipeDraft> getRecipeDraft(String id) async {
+    final recipe = await (_database.select(
+      _database.recipes,
+    )..where((table) => table.id.equals(id))).getSingle();
+    final tags =
+        await (_database.select(
+            _database.recipeTags,
+          )..where((table) => table.recipeId.equals(id))).get()
+          ..sort((left, right) => left.position.compareTo(right.position));
+    final ingredients =
+        await (_database.select(
+            _database.recipeIngredients,
+          )..where((table) => table.recipeId.equals(id))).get()
+          ..sort((left, right) => left.position.compareTo(right.position));
+    final directions =
+        await (_database.select(
+            _database.recipeDirections,
+          )..where((table) => table.recipeId.equals(id))).get()
+          ..sort((left, right) => left.position.compareTo(right.position));
+
+    return RecipeDraft(
+      name: recipe.title,
+      versionLabel: recipe.versionLabel ?? '',
+      servings: recipe.servings,
+      note: recipe.notes,
+      tags: tags.map((tag) => tag.label).toList(growable: false),
+      isPinned: recipe.isPinned,
+      nutrition: NutritionSnapshot(
+        calories: recipe.calories,
+        protein: recipe.protein,
+        carbs: recipe.carbs,
+        fat: recipe.fat,
+        fiber: recipe.fiber,
+        sodium: recipe.sodium,
+        sugar: recipe.sugar,
+      ),
+      ingredients: ingredients
+          .map(
+            (ingredient) => RecipeIngredientDraft(
+              quantity: ingredient.quantity,
+              unit: ingredient.unit,
+              item: ingredient.item,
+              preparation: ingredient.preparation,
+            ),
+          )
+          .toList(growable: false),
+      directions: directions
+          .map((direction) => direction.instruction)
+          .toList(growable: false),
+    );
+  }
+
+  Future<void> saveRecipe(RecipeDraft draft, {String? existingId}) async {
     final recipeId =
         existingId ?? 'recipe_${DateTime.now().microsecondsSinceEpoch}';
     final normalizedTags = draft.tags
@@ -108,26 +193,67 @@ class RecipesRepository {
             ),
           );
 
-      await (_database.delete(_database.recipeTags)
-            ..where((table) => table.recipeId.equals(recipeId)))
-          .go();
+      await (_database.delete(
+        _database.recipeTags,
+      )..where((table) => table.recipeId.equals(recipeId))).go();
+      await (_database.delete(
+        _database.recipeIngredients,
+      )..where((table) => table.recipeId.equals(recipeId))).go();
+      await (_database.delete(
+        _database.recipeDirections,
+      )..where((table) => table.recipeId.equals(recipeId))).go();
 
       for (var index = 0; index < normalizedTags.length; index++) {
-        await _database.into(_database.recipeTags).insert(
-          RecipeTagsCompanion.insert(
-            recipeId: recipeId,
-            label: normalizedTags[index],
-            position: index,
-          ),
-        );
+        await _database
+            .into(_database.recipeTags)
+            .insert(
+              RecipeTagsCompanion.insert(
+                recipeId: recipeId,
+                label: normalizedTags[index],
+                position: index,
+              ),
+            );
+      }
+
+      for (var index = 0; index < draft.ingredients.length; index++) {
+        final ingredient = draft.ingredients[index];
+        await _database
+            .into(_database.recipeIngredients)
+            .insert(
+              RecipeIngredientsCompanion.insert(
+                recipeId: recipeId,
+                position: index,
+                quantity: ingredient.quantity.trim(),
+                unit: ingredient.unit.trim(),
+                item: ingredient.item.trim(),
+                preparation: ingredient.preparation.trim(),
+              ),
+            );
+      }
+
+      for (var index = 0; index < draft.directions.length; index++) {
+        final direction = draft.directions[index].trim();
+        if (direction.isEmpty) {
+          continue;
+        }
+
+        await _database
+            .into(_database.recipeDirections)
+            .insert(
+              RecipeDirectionsCompanion.insert(
+                recipeId: recipeId,
+                position: index,
+                instruction: direction,
+              ),
+            );
       }
     });
   }
 
   Future<void> deleteRecipe(String id) {
-    return (_database.delete(_database.recipes)
-          ..where((table) => table.id.equals(id)))
-        .go();
+    return (_database.delete(
+      _database.recipes,
+    )..where((table) => table.id.equals(id))).go();
   }
 
   String? _normalizedVersionLabel(String value) {
