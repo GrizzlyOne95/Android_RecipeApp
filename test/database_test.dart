@@ -1,4 +1,6 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
+import 'package:flutter/material.dart' show Color;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:recipe_app/src/core/mock_data.dart';
 import 'package:recipe_app/src/data/local/app_database.dart';
@@ -65,6 +67,773 @@ void main() {
         'Weeknight Turkey Chili',
         'Greek Yogurt Pancakes',
       ]);
+    },
+  );
+
+  test(
+    'recipe repository resolves linked pantry and nested recipe nutrition',
+    () async {
+      final database = AppDatabase.forTesting(NativeDatabase.memory());
+      final repositories = AppRepositories(database);
+      addTearDown(database.close);
+
+      await repositories.initialize();
+
+      await repositories.recipes.saveRecipe(
+        const RecipeDraft(
+          name: 'Quick Sauce',
+          versionLabel: 'Base',
+          servings: 2,
+          note: 'Child recipe for nested nutrition.',
+          tags: ['Sauce'],
+          isPinned: false,
+          nutrition: NutritionSnapshot(
+            calories: 80,
+            protein: 8,
+            carbs: 4,
+            fat: 2,
+            fiber: 1,
+            sodium: 40,
+            sugar: 2,
+          ),
+          ingredients: [],
+          directions: ['Whisk and simmer.'],
+        ),
+      );
+
+      final child = (await repositories.recipes.watchRecipes().first)
+          .firstWhere((recipe) => recipe.name == 'Quick Sauce');
+
+      await repositories.recipes.saveRecipe(
+        RecipeDraft(
+          name: 'Linked Protein Bowl',
+          versionLabel: 'Auto Calculated',
+          servings: 4,
+          note: 'Uses pantry and recipe links.',
+          tags: const ['Dinner'],
+          isPinned: false,
+          nutrition: NutritionSnapshot.zero,
+          ingredients: [
+            const RecipeIngredientDraft(
+              quantity: '2',
+              unit: 'servings',
+              item: 'Greek yogurt',
+              preparation: '',
+              linkType: RecipeIngredientType.pantryItem,
+              linkedPantryItemId: 'pantry_0',
+            ),
+            RecipeIngredientDraft(
+              quantity: '1',
+              unit: 'serving',
+              item: 'Quick Sauce',
+              preparation: '',
+              linkType: RecipeIngredientType.recipeReference,
+              linkedRecipeId: child.id,
+            ),
+          ],
+          directions: const ['Stir together and serve.'],
+        ),
+      );
+
+      final parent = (await repositories.recipes.watchRecipes().first)
+          .firstWhere((recipe) => recipe.name == 'Linked Protein Bowl');
+
+      expect(parent.nutrition.calories, 65);
+      expect(parent.nutrition.protein, 11);
+      expect(parent.nutrition.carbs, 4);
+      expect(parent.nutrition.fat, 1);
+      expect(parent.nutrition.sodium, 43);
+
+      final parentDraft = await repositories.recipes.getRecipeDraft(parent.id);
+      expect(parentDraft.nutrition.calories, 0);
+      expect(
+        parentDraft.ingredients.first.linkType,
+        RecipeIngredientType.pantryItem,
+      );
+      expect(parentDraft.ingredients.first.linkedPantryItemId, 'pantry_0');
+      expect(
+        parentDraft.ingredients.last.linkType,
+        RecipeIngredientType.recipeReference,
+      );
+      expect(parentDraft.ingredients.last.linkedRecipeId, child.id);
+    },
+  );
+
+  test(
+    'recipe repository recalculates parents when linked child nutrition changes',
+    () async {
+      final database = AppDatabase.forTesting(NativeDatabase.memory());
+      final repositories = AppRepositories(database);
+      addTearDown(database.close);
+
+      await repositories.initialize();
+
+      await repositories.recipes.saveRecipe(
+        const RecipeDraft(
+          name: 'Prep Sauce',
+          versionLabel: 'Child',
+          servings: 2,
+          note: '',
+          tags: ['Sauce'],
+          isPinned: false,
+          nutrition: NutritionSnapshot(
+            calories: 100,
+            protein: 10,
+            carbs: 8,
+            fat: 2,
+            fiber: 1,
+            sodium: 100,
+            sugar: 4,
+          ),
+          ingredients: [],
+          directions: ['Mix'],
+        ),
+      );
+
+      final child = (await repositories.recipes.watchRecipes().first)
+          .firstWhere((recipe) => recipe.name == 'Prep Sauce');
+
+      await repositories.recipes.saveRecipe(
+        RecipeDraft(
+          name: 'Sauce Bowl',
+          versionLabel: 'Parent',
+          servings: 2,
+          note: '',
+          tags: const ['Dinner'],
+          isPinned: false,
+          nutrition: const NutritionSnapshot(
+            calories: 50,
+            protein: 2,
+            carbs: 6,
+            fat: 1,
+            fiber: 0,
+            sodium: 20,
+            sugar: 1,
+          ),
+          ingredients: [
+            RecipeIngredientDraft(
+              quantity: '1',
+              unit: 'serving',
+              item: 'Prep Sauce',
+              preparation: '',
+              linkType: RecipeIngredientType.recipeReference,
+              linkedRecipeId: child.id,
+            ),
+          ],
+          directions: const ['Serve'],
+        ),
+      );
+
+      final parentBefore = (await repositories.recipes.watchRecipes().first)
+          .firstWhere((recipe) => recipe.name == 'Sauce Bowl');
+      expect(parentBefore.nutrition.calories, 100);
+      expect(parentBefore.nutrition.protein, 7);
+
+      await repositories.recipes.saveRecipe(
+        const RecipeDraft(
+          name: 'Prep Sauce',
+          versionLabel: 'Child',
+          servings: 2,
+          note: '',
+          tags: ['Sauce'],
+          isPinned: false,
+          nutrition: NutritionSnapshot(
+            calories: 140,
+            protein: 16,
+            carbs: 8,
+            fat: 4,
+            fiber: 1,
+            sodium: 120,
+            sugar: 4,
+          ),
+          ingredients: [],
+          directions: ['Mix'],
+        ),
+        existingId: child.id,
+      );
+
+      final parentAfter = (await repositories.recipes.watchRecipes().first)
+          .firstWhere((recipe) => recipe.name == 'Sauce Bowl');
+      expect(parentAfter.nutrition.calories, 120);
+      expect(parentAfter.nutrition.protein, 10);
+      expect(parentAfter.nutrition.fat, 3);
+      expect(parentAfter.nutrition.sodium, 80);
+    },
+  );
+
+  test(
+    'recipe repository converts linked pantry quantities across common unit systems',
+    () async {
+      final database = AppDatabase.forTesting(NativeDatabase.memory());
+      final repositories = AppRepositories(database);
+      addTearDown(database.close);
+
+      await repositories.initialize();
+
+      final now = DateTime(2026, 3, 13, 12);
+      await database
+          .into(database.pantryItemsTable)
+          .insert(
+            PantryItemsTableCompanion.insert(
+              id: 'pantry_test_cup',
+              title: 'Measured Stock',
+              quantityLabel: 'Test carton',
+              referenceUnit: const Value('cup'),
+              source: 'test',
+              accentHex: 0xFF123456,
+              barcode: const Value(null),
+              brand: const Value(null),
+              calories: 100,
+              protein: 10,
+              carbs: 1,
+              fat: 1,
+              fiber: 1,
+              sodium: 100,
+              sugar: 1,
+              createdAt: now,
+            ),
+          );
+      await database
+          .into(database.pantryItemsTable)
+          .insert(
+            PantryItemsTableCompanion.insert(
+              id: 'pantry_test_kilo',
+              title: 'Measured Flour',
+              quantityLabel: 'Test bag',
+              referenceUnit: const Value('kg'),
+              source: 'test',
+              accentHex: 0xFF654321,
+              barcode: const Value(null),
+              brand: const Value(null),
+              calories: 200,
+              protein: 20,
+              carbs: 2,
+              fat: 2,
+              fiber: 2,
+              sodium: 200,
+              sugar: 2,
+              createdAt: now,
+            ),
+          );
+      await database
+          .into(database.pantryItemsTable)
+          .insert(
+            PantryItemsTableCompanion.insert(
+              id: 'pantry_test_serving',
+              title: 'Measured Yogurt',
+              quantityLabel: 'Test tub',
+              referenceUnit: const Value('serving'),
+              referenceUnitEquivalentQuantity: const Value(0.75),
+              referenceUnitEquivalentUnit: const Value('cup'),
+              referenceUnitWeightGrams: const Value(170),
+              source: 'test',
+              accentHex: 0xFFABCDEF,
+              barcode: const Value(null),
+              brand: const Value(null),
+              calories: 300,
+              protein: 30,
+              carbs: 3,
+              fat: 3,
+              fiber: 3,
+              sodium: 300,
+              sugar: 3,
+              createdAt: now,
+            ),
+          );
+
+      await repositories.recipes.saveRecipe(
+        const RecipeDraft(
+          name: 'Converted Units Bowl',
+          versionLabel: 'Normalization',
+          servings: 1,
+          note: '',
+          tags: ['Conversion'],
+          isPinned: false,
+          nutrition: NutritionSnapshot.zero,
+          ingredients: [
+            RecipeIngredientDraft(
+              quantity: '16',
+              unit: 'tbsp',
+              item: 'Measured Stock',
+              preparation: '',
+              linkType: RecipeIngredientType.pantryItem,
+              linkedPantryItemId: 'pantry_test_cup',
+            ),
+            RecipeIngredientDraft(
+              quantity: '1000',
+              unit: 'g',
+              item: 'Measured Flour',
+              preparation: '',
+              linkType: RecipeIngredientType.pantryItem,
+              linkedPantryItemId: 'pantry_test_kilo',
+            ),
+            RecipeIngredientDraft(
+              quantity: '12',
+              unit: 'tbsp',
+              item: 'Measured Yogurt',
+              preparation: '',
+              linkType: RecipeIngredientType.pantryItem,
+              linkedPantryItemId: 'pantry_test_serving',
+            ),
+            RecipeIngredientDraft(
+              quantity: '170',
+              unit: 'g',
+              item: 'Measured Yogurt',
+              preparation: '',
+              linkType: RecipeIngredientType.pantryItem,
+              linkedPantryItemId: 'pantry_test_serving',
+            ),
+          ],
+          directions: ['Mix'],
+        ),
+      );
+
+      final converted = (await repositories.recipes.watchRecipes().first)
+          .firstWhere((recipe) => recipe.name == 'Converted Units Bowl');
+
+      expect(converted.nutrition.calories, 900);
+      expect(converted.nutrition.protein, 90);
+      expect(converted.nutrition.carbs, 9);
+      expect(converted.nutrition.fat, 9);
+      expect(converted.nutrition.fiber, 9);
+      expect(converted.nutrition.sodium, 900);
+      expect(converted.nutrition.sugar, 9);
+    },
+  );
+
+  test('pantry repository can create update and delete pantry items', () async {
+    final database = AppDatabase.forTesting(NativeDatabase.memory());
+    final repositories = AppRepositories(database);
+    addTearDown(database.close);
+
+    await repositories.initialize();
+
+    await repositories.pantry.savePantryItem(
+      const PantryItemDraft(
+        name: 'Measured Cottage Cheese',
+        quantityLabel: '24 oz tub',
+        referenceUnit: 'serving',
+        source: 'Manual entry',
+        nutrition: NutritionSnapshot(
+          calories: 110,
+          protein: 14,
+          carbs: 3,
+          fat: 4,
+          fiber: 0,
+          sodium: 360,
+          sugar: 2,
+        ),
+        accent: Color(0xFF4A6572),
+        referenceUnitEquivalentQuantity: 0.5,
+        referenceUnitEquivalentUnit: 'cup',
+        referenceUnitWeightGrams: 113,
+      ),
+    );
+
+    var pantryItems = await repositories.pantry.watchPantryItems().first;
+    final created = pantryItems.firstWhere(
+      (item) => item.name == 'Measured Cottage Cheese',
+    );
+
+    expect(created.referenceUnit, 'serving');
+    expect(created.referenceUnitEquivalentQuantity, 0.5);
+    expect(created.referenceUnitEquivalentUnit, 'cup');
+    expect(created.referenceUnitWeightGrams, 113);
+    expect(created.nutrition.protein, 14);
+
+    await repositories.pantry.savePantryItem(
+      const PantryItemDraft(
+        name: 'Measured Cottage Cheese',
+        quantityLabel: '24 oz tub',
+        referenceUnit: 'serving',
+        source: 'Manual update',
+        nutrition: NutritionSnapshot(
+          calories: 120,
+          protein: 16,
+          carbs: 4,
+          fat: 4,
+          fiber: 0,
+          sodium: 380,
+          sugar: 3,
+        ),
+        accent: Color(0xFF4F6B44),
+        referenceUnitEquivalentQuantity: 120,
+        referenceUnitEquivalentUnit: 'g',
+        referenceUnitWeightGrams: 120,
+      ),
+      existingId: created.id,
+    );
+
+    pantryItems = await repositories.pantry.watchPantryItems().first;
+    final updated = pantryItems.firstWhere((item) => item.id == created.id);
+
+    expect(updated.source, 'Manual update');
+    expect(updated.nutrition.calories, 120);
+    expect(updated.nutrition.protein, 16);
+    expect(updated.referenceUnitEquivalentQuantity, 120);
+    expect(updated.referenceUnitEquivalentUnit, 'g');
+    expect(updated.referenceUnitWeightGrams, 120);
+
+    await repositories.pantry.deletePantryItem(created.id);
+
+    pantryItems = await repositories.pantry.watchPantryItems().first;
+    expect(pantryItems.where((item) => item.id == created.id), isEmpty);
+  });
+
+  test(
+    'food log repository recalculates saved meals with linked pantry and recipe components',
+    () async {
+      final database = AppDatabase.forTesting(NativeDatabase.memory());
+      final repositories = AppRepositories(database);
+      addTearDown(database.close);
+
+      await repositories.initialize();
+
+      await repositories.recipes.saveRecipe(
+        const RecipeDraft(
+          name: 'Breakfast Protein',
+          versionLabel: 'Meal component',
+          servings: 1,
+          note: '',
+          tags: ['Breakfast'],
+          isPinned: false,
+          nutrition: NutritionSnapshot(
+            calories: 200,
+            protein: 20,
+            carbs: 10,
+            fat: 6,
+            fiber: 1,
+            sodium: 150,
+            sugar: 3,
+          ),
+          ingredients: [],
+          directions: ['Mix'],
+        ),
+      );
+
+      final linkedRecipe = (await repositories.recipes.watchRecipes().first)
+          .firstWhere((recipe) => recipe.name == 'Breakfast Protein');
+
+      await repositories.foodLog.saveSavedMeal(
+        SavedMealDraft(
+          name: 'Breakfast Combo',
+          manualNutrition: const NutritionSnapshot(
+            calories: 50,
+            protein: 5,
+            carbs: 4,
+            fat: 2,
+            fiber: 1,
+            sodium: 25,
+            sugar: 1,
+          ),
+          adjustments: const ['Extra berries'],
+          components: [
+            SavedMealComponentDraft(
+              quantity: '1',
+              unit: 'serving',
+              item: 'Breakfast Protein',
+              linkType: RecipeIngredientType.recipeReference,
+              linkedRecipeId: linkedRecipe.id,
+            ),
+            const SavedMealComponentDraft(
+              quantity: '0.5',
+              unit: 'cup',
+              item: 'Nonfat Greek Yogurt',
+              linkType: RecipeIngredientType.pantryItem,
+              linkedPantryItemId: 'pantry_0',
+            ),
+          ],
+        ),
+      );
+
+      var snapshot = await repositories.foodLog.watchSnapshot().first;
+      final meal = snapshot.savedMeals.firstWhere(
+        (savedMeal) => savedMeal.name == 'Breakfast Combo',
+      );
+
+      expect(meal.nutrition.calories, 295);
+      expect(meal.nutrition.protein, 34);
+      expect(meal.nutrition.carbs, 17);
+      expect(meal.nutrition.fat, 8);
+      expect(meal.nutrition.fiber, 2);
+      expect(meal.nutrition.sodium, 208);
+      expect(meal.nutrition.sugar, 7);
+      expect(meal.adjustments, ['Extra berries']);
+      expect(meal.components, hasLength(2));
+
+      await repositories.recipes.saveRecipe(
+        const RecipeDraft(
+          name: 'Breakfast Protein',
+          versionLabel: 'Meal component',
+          servings: 1,
+          note: '',
+          tags: ['Breakfast'],
+          isPinned: false,
+          nutrition: NutritionSnapshot(
+            calories: 260,
+            protein: 24,
+            carbs: 12,
+            fat: 10,
+            fiber: 2,
+            sodium: 170,
+            sugar: 4,
+          ),
+          ingredients: [],
+          directions: ['Mix'],
+        ),
+        existingId: linkedRecipe.id,
+      );
+
+      snapshot = await repositories.foodLog.watchSnapshot().first;
+      final updatedMeal = snapshot.savedMeals.firstWhere(
+        (savedMeal) => savedMeal.name == 'Breakfast Combo',
+      );
+
+      expect(updatedMeal.nutrition.calories, 355);
+      expect(updatedMeal.nutrition.protein, 38);
+      expect(updatedMeal.nutrition.carbs, 19);
+      expect(updatedMeal.nutrition.fat, 12);
+      expect(updatedMeal.nutrition.fiber, 3);
+      expect(updatedMeal.nutrition.sodium, 228);
+      expect(updatedMeal.nutrition.sugar, 8);
+
+      final savedMealDraft = await repositories.foodLog.getSavedMealDraft(
+        updatedMeal.id,
+      );
+      expect(savedMealDraft.components, hasLength(2));
+      expect(
+        savedMealDraft.components.first.linkType,
+        RecipeIngredientType.recipeReference,
+      );
+
+      await repositories.foodLog.deleteSavedMeal(updatedMeal.id);
+      snapshot = await repositories.foodLog.watchSnapshot().first;
+      expect(
+        snapshot.savedMeals.where(
+          (savedMeal) => savedMeal.id == updatedMeal.id,
+        ),
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'grocery repository exports aggregated pinned recipe and saved meal ingredients',
+    () async {
+      final database = AppDatabase.forTesting(NativeDatabase.memory());
+      final repositories = AppRepositories(database);
+      addTearDown(database.close);
+
+      await repositories.pantry.savePantryItem(
+        const PantryItemDraft(
+          name: 'Diced Tomatoes',
+          quantityLabel: '14.5 oz can',
+          referenceUnit: 'can',
+          source: 'Manual entry',
+          nutrition: NutritionSnapshot.zero,
+          accent: Color(0xFFD87B42),
+          referenceUnitEquivalentQuantity: 14.5,
+          referenceUnitEquivalentUnit: 'oz',
+          referenceUnitWeightGrams: 411,
+        ),
+      );
+
+      final pantryItem = await repositories.pantry
+          .watchPantryItems()
+          .first
+          .then(
+            (items) =>
+                items.firstWhere((item) => item.name == 'Diced Tomatoes'),
+          );
+
+      await repositories.recipes.saveRecipe(
+        RecipeDraft(
+          name: 'Tomato Base',
+          versionLabel: 'Child',
+          servings: 2,
+          note: '',
+          tags: const ['Sauce'],
+          isPinned: false,
+          nutrition: NutritionSnapshot.zero,
+          ingredients: [
+            RecipeIngredientDraft(
+              quantity: '2',
+              unit: 'cans',
+              item: 'Diced Tomatoes',
+              preparation: '',
+              linkType: RecipeIngredientType.pantryItem,
+              linkedPantryItemId: pantryItem.id,
+            ),
+          ],
+          directions: const ['Simmer'],
+        ),
+      );
+
+      final childRecipe = await repositories.recipes.watchRecipes().first.then(
+        (recipes) =>
+            recipes.firstWhere((recipe) => recipe.name == 'Tomato Base'),
+      );
+
+      await repositories.recipes.saveRecipe(
+        RecipeDraft(
+          name: 'Pinned Pasta',
+          versionLabel: 'Pinned',
+          servings: 2,
+          note: '',
+          tags: const ['Dinner'],
+          isPinned: true,
+          nutrition: NutritionSnapshot.zero,
+          ingredients: [
+            const RecipeIngredientDraft(
+              quantity: '1',
+              unit: 'lb',
+              item: 'Pasta',
+              preparation: '',
+            ),
+            RecipeIngredientDraft(
+              quantity: '1',
+              unit: 'serving',
+              item: 'Tomato Base',
+              preparation: '',
+              linkType: RecipeIngredientType.recipeReference,
+              linkedRecipeId: childRecipe.id,
+            ),
+          ],
+          directions: const ['Cook and toss'],
+        ),
+      );
+
+      final parentRecipe = await repositories.recipes.watchRecipes().first.then(
+        (recipes) =>
+            recipes.firstWhere((recipe) => recipe.name == 'Pinned Pasta'),
+      );
+
+      await repositories.foodLog.saveSavedMeal(
+        SavedMealDraft(
+          name: 'Dinner Combo',
+          manualNutrition: NutritionSnapshot.zero,
+          adjustments: const [],
+          components: [
+            SavedMealComponentDraft(
+              quantity: '2',
+              unit: 'servings',
+              item: 'Pinned Pasta',
+              linkType: RecipeIngredientType.recipeReference,
+              linkedRecipeId: parentRecipe.id,
+            ),
+          ],
+        ),
+      );
+
+      final sections = await repositories.grocery.watchGrocerySections().first;
+      final pinnedSection = sections.firstWhere(
+        (section) => section.title == 'Pinned Recipes',
+      );
+      final savedMealsSection = sections.firstWhere(
+        (section) => section.title == 'Saved Meals',
+      );
+
+      final pinnedPasta = pinnedSection.items.firstWhere(
+        (item) => item.label == 'Pasta',
+      );
+      final pinnedTomatoes = pinnedSection.items.firstWhere(
+        (item) => item.label == 'Diced Tomatoes',
+      );
+      final savedMealPasta = savedMealsSection.items.firstWhere(
+        (item) => item.label == 'Pasta',
+      );
+      final savedMealTomatoes = savedMealsSection.items.firstWhere(
+        (item) => item.label == 'Diced Tomatoes',
+      );
+
+      expect(pinnedPasta.detail, '1 lb');
+      expect(pinnedPasta.sourceSummary, 'Pinned Pasta');
+      expect(pinnedTomatoes.detail, '1 can');
+      expect(pinnedTomatoes.sourceSummary, 'Pinned Pasta');
+
+      expect(savedMealPasta.detail, '1 lb');
+      expect(savedMealPasta.sourceSummary, 'Dinner Combo');
+      expect(savedMealTomatoes.detail, '1 can');
+      expect(savedMealTomatoes.sourceSummary, 'Dinner Combo');
+    },
+  );
+
+  test(
+    'grocery repository persists export settings manual items and checked state',
+    () async {
+      final database = AppDatabase.forTesting(NativeDatabase.memory());
+      final repositories = AppRepositories(database);
+      addTearDown(database.close);
+
+      await repositories.initialize();
+
+      await repositories.grocery.saveManualItem(
+        const GroceryManualItemDraft(
+          sectionTitle: 'Quick Add',
+          label: 'Bananas',
+          quantity: '6',
+          unit: 'each',
+        ),
+      );
+
+      var sections = await repositories.grocery.watchGrocerySections().first;
+      final manualSection = sections.firstWhere(
+        (section) => section.title == 'Quick Add',
+      );
+      final bananas = manualSection.items.firstWhere(
+        (item) => item.label == 'Bananas',
+      );
+      expect(bananas.detail, '6 each');
+      expect(bananas.isGenerated, isFalse);
+
+      await repositories.grocery.toggleItemChecked(bananas, true);
+      sections = await repositories.grocery.watchGrocerySections().first;
+      final checkedBananas = sections
+          .firstWhere((section) => section.title == 'Quick Add')
+          .items
+          .firstWhere((item) => item.label == 'Bananas');
+      expect(checkedBananas.isChecked, isTrue);
+
+      final generatedItem = sections
+          .firstWhere((section) => section.title == 'Pinned Recipes')
+          .items
+          .first;
+      await repositories.grocery.toggleItemChecked(generatedItem, true);
+      sections = await repositories.grocery.watchGrocerySections().first;
+      final checkedGeneratedItem = sections
+          .firstWhere((section) => section.title == 'Pinned Recipes')
+          .items
+          .firstWhere((item) => item.key == generatedItem.key);
+      expect(checkedGeneratedItem.isChecked, isTrue);
+
+      await repositories.grocery.setExportSettings(
+        const GroceryExportSettings(
+          includePinnedRecipes: false,
+          includeSavedMeals: false,
+        ),
+      );
+
+      final settings = await repositories.grocery.watchExportSettings().first;
+      expect(settings.includePinnedRecipes, isFalse);
+      expect(settings.includeSavedMeals, isFalse);
+
+      sections = await repositories.grocery.watchGrocerySections().first;
+      expect(
+        sections.where((section) => section.title == 'Pinned Recipes'),
+        isEmpty,
+      );
+      expect(
+        sections.where((section) => section.title == 'Saved Meals'),
+        isEmpty,
+      );
+      expect(
+        sections
+            .firstWhere((section) => section.title == 'Quick Add')
+            .items
+            .firstWhere((item) => item.label == 'Bananas')
+            .isChecked,
+        isTrue,
+      );
     },
   );
 

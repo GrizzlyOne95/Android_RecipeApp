@@ -46,6 +46,10 @@ class RecipeIngredients extends Table {
   TextColumn get unit => text()();
   TextColumn get item => text()();
   TextColumn get preparation => text()();
+  TextColumn get ingredientType =>
+      text().withDefault(const Constant('freeform'))();
+  TextColumn get linkedPantryItemId => text().nullable()();
+  TextColumn get linkedRecipeId => text().nullable()();
 }
 
 class RecipeDirections extends Table {
@@ -59,6 +63,11 @@ class PantryItemsTable extends Table {
   TextColumn get id => text()();
   TextColumn get title => text()();
   TextColumn get quantityLabel => text()();
+  TextColumn get referenceUnit =>
+      text().withDefault(const Constant('serving'))();
+  RealColumn get referenceUnitEquivalentQuantity => real().nullable()();
+  TextColumn get referenceUnitEquivalentUnit => text().nullable()();
+  RealColumn get referenceUnitWeightGrams => real().nullable()();
   TextColumn get source => text()();
   IntColumn get accentHex => integer()();
   TextColumn get barcode => text().nullable()();
@@ -116,6 +125,19 @@ class SavedMealAdjustments extends Table {
   IntColumn get position => integer()();
 }
 
+class SavedMealComponents extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get mealId => text().references(SavedMealsTable, #id)();
+  IntColumn get position => integer()();
+  TextColumn get quantity => text()();
+  TextColumn get unit => text()();
+  TextColumn get item => text()();
+  TextColumn get componentType =>
+      text().withDefault(const Constant('freeform'))();
+  TextColumn get linkedPantryItemId => text().nullable()();
+  TextColumn get linkedRecipeId => text().nullable()();
+}
+
 class DailyGoalsTable extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get label => text().unique()();
@@ -134,6 +156,7 @@ class DailyGoalsTable extends Table {
     GroceryItemsTable,
     SavedMealsTable,
     SavedMealAdjustments,
+    SavedMealComponents,
     DailyGoalsTable,
   ],
 )
@@ -143,7 +166,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -154,6 +177,34 @@ class AppDatabase extends _$AppDatabase {
       if (from < 2) {
         await m.createTable(recipeIngredients);
         await m.createTable(recipeDirections);
+      }
+      if (from < 3) {
+        await m.addColumn(recipeIngredients, recipeIngredients.ingredientType);
+        await m.addColumn(
+          recipeIngredients,
+          recipeIngredients.linkedPantryItemId,
+        );
+        await m.addColumn(recipeIngredients, recipeIngredients.linkedRecipeId);
+      }
+      if (from < 4) {
+        await m.addColumn(pantryItemsTable, pantryItemsTable.referenceUnit);
+      }
+      if (from < 5) {
+        await m.addColumn(
+          pantryItemsTable,
+          pantryItemsTable.referenceUnitEquivalentQuantity,
+        );
+        await m.addColumn(
+          pantryItemsTable,
+          pantryItemsTable.referenceUnitEquivalentUnit,
+        );
+        await m.addColumn(
+          pantryItemsTable,
+          pantryItemsTable.referenceUnitWeightGrams,
+        );
+      }
+      if (from < 6) {
+        await m.createTable(savedMealComponents);
       }
     },
   );
@@ -217,6 +268,9 @@ class AppDatabase extends _$AppDatabase {
               unit: ingredient.unit,
               item: ingredient.item,
               preparation: ingredient.preparation,
+              ingredientType: Value(ingredient.linkType.name),
+              linkedPantryItemId: Value(ingredient.linkedPantryItemId),
+              linkedRecipeId: Value(ingredient.linkedRecipeId),
             ),
           );
         }
@@ -242,9 +296,17 @@ class AppDatabase extends _$AppDatabase {
 
         await into(pantryItemsTable).insert(
           PantryItemsTableCompanion.insert(
-            id: 'pantry_$index',
+            id: item.id,
             title: item.name,
             quantityLabel: item.quantityLabel,
+            referenceUnit: Value(item.referenceUnit),
+            referenceUnitEquivalentQuantity: Value(
+              item.referenceUnitEquivalentQuantity,
+            ),
+            referenceUnitEquivalentUnit: Value(
+              item.referenceUnitEquivalentUnit,
+            ),
+            referenceUnitWeightGrams: Value(item.referenceUnitWeightGrams),
             source: item.source,
             accentHex: item.accent.toARGB32(),
             barcode: const Value(null),
@@ -278,11 +340,13 @@ class AppDatabase extends _$AppDatabase {
         );
 
         for (var itemIndex = 0; itemIndex < section.items.length; itemIndex++) {
+          final groceryItem = section.items[itemIndex];
           await into(groceryItemsTable).insert(
             GroceryItemsTableCompanion.insert(
               sectionId: sectionId,
-              label: section.items[itemIndex],
+              label: groceryItem.label,
               position: itemIndex,
+              isChecked: Value(groceryItem.isChecked),
             ),
           );
         }
@@ -294,19 +358,19 @@ class AppDatabase extends _$AppDatabase {
         mealIndex++
       ) {
         final meal = SeedData.savedMeals[mealIndex];
-        final mealId = 'saved_meal_$mealIndex';
+        final mealId = meal.id;
 
         await into(savedMealsTable).insert(
           SavedMealsTableCompanion.insert(
             id: mealId,
             title: meal.name,
-            calories: meal.nutrition.calories,
-            protein: meal.nutrition.protein,
-            carbs: meal.nutrition.carbs,
-            fat: meal.nutrition.fat,
-            fiber: meal.nutrition.fiber,
-            sodium: meal.nutrition.sodium,
-            sugar: meal.nutrition.sugar,
+            calories: meal.manualNutrition.calories,
+            protein: meal.manualNutrition.protein,
+            carbs: meal.manualNutrition.carbs,
+            fat: meal.manualNutrition.fat,
+            fiber: meal.manualNutrition.fiber,
+            sodium: meal.manualNutrition.sodium,
+            sugar: meal.manualNutrition.sugar,
             createdAt: now,
           ),
         );
@@ -321,6 +385,26 @@ class AppDatabase extends _$AppDatabase {
               mealId: mealId,
               label: meal.adjustments[adjustmentIndex],
               position: adjustmentIndex,
+            ),
+          );
+        }
+
+        for (
+          var componentIndex = 0;
+          componentIndex < meal.components.length;
+          componentIndex++
+        ) {
+          final component = meal.components[componentIndex];
+          await into(savedMealComponents).insert(
+            SavedMealComponentsCompanion.insert(
+              mealId: mealId,
+              position: componentIndex,
+              quantity: component.quantity,
+              unit: component.unit,
+              item: component.item,
+              componentType: Value(component.linkType.name),
+              linkedPantryItemId: Value(component.linkedPantryItemId),
+              linkedRecipeId: Value(component.linkedRecipeId),
             ),
           );
         }

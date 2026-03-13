@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/recipe_app_scope.dart';
+import '../../core/measurement_units.dart';
 import '../../core/mock_data.dart';
 import '../../data/repositories/app_repositories.dart';
 import '../shell/app_shell.dart';
@@ -152,6 +153,7 @@ class _RecipesPageState extends State<RecipesPage> {
       builder: (context) => RecipeEditorSheet(
         initialDraft: draft,
         existingRecipeName: saveAsNew ? null : recipe?.name,
+        existingRecipeId: saveAsNew ? null : recipe?.id,
       ),
     );
 
@@ -414,6 +416,7 @@ class _RecipeDetailSheetState extends State<RecipeDetailSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final repository = RecipeAppScope.of(context).repositories.recipes;
     final viewInsets = MediaQuery.viewInsetsOf(context);
     final theme = Theme.of(context);
     final scaledServings = widget.summary.servings * _scaleFactor;
@@ -515,7 +518,7 @@ class _RecipeDetailSheetState extends State<RecipeDetailSheet> {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    'Per-serving nutrition stays constant. Batch totals scale automatically.',
+                    'Per-serving nutrition includes linked pantry items and nested recipes. Batch totals scale automatically.',
                     style: theme.textTheme.bodyMedium,
                   ),
                 ],
@@ -550,26 +553,31 @@ class _RecipeDetailSheetState extends State<RecipeDetailSheet> {
             const SizedBox(height: 16),
             _FormSection(
               title: 'Ingredients',
-              child: Column(
-                children: [
-                  for (
-                    var index = 0;
-                    index < widget.draft.ingredients.length;
-                    index++
-                  )
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _DetailListCard(
-                        indexLabel: '${index + 1}',
-                        title: _RecipeScaling.formatIngredient(
-                          widget.draft.ingredients[index],
-                          _scaleFactor,
+              child: StreamBuilder<List<ResolvedRecipeIngredient>>(
+                stream: repository.watchResolvedIngredients(widget.summary.id),
+                builder: (context, snapshot) {
+                  final ingredients =
+                      snapshot.data ?? _fallbackResolvedIngredients();
+
+                  return Column(
+                    children: [
+                      for (var index = 0; index < ingredients.length; index++)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _DetailListCard(
+                            indexLabel: '${index + 1}',
+                            title: _RecipeScaling.formatIngredient(
+                              ingredients[index].draft,
+                              _scaleFactor,
+                            ),
+                            subtitle: _ingredientDetailSubtitle(
+                              ingredients[index],
+                            ),
+                          ),
                         ),
-                        subtitle: widget.draft.ingredients[index].preparation
-                            .trim(),
-                      ),
-                    ),
-                ],
+                    ],
+                  );
+                },
               ),
             ),
             const SizedBox(height: 16),
@@ -633,6 +641,33 @@ class _RecipeDetailSheetState extends State<RecipeDetailSheet> {
     setState(() {
       _scaleFactor = next.clamp(0.25, 8.0);
     });
+  }
+
+  List<ResolvedRecipeIngredient> _fallbackResolvedIngredients() {
+    return widget.draft.ingredients
+        .map(
+          (ingredient) => ResolvedRecipeIngredient(
+            draft: ingredient,
+            linkTitle: null,
+            linkSubtitle: '',
+            batchNutrition: NutritionSnapshot.zero,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  String _ingredientDetailSubtitle(ResolvedRecipeIngredient ingredient) {
+    final scaledNutrition = ingredient.batchNutrition.scale(_scaleFactor);
+    final lines = <String>[
+      if (ingredient.draft.preparation.trim().isNotEmpty)
+        ingredient.draft.preparation.trim(),
+      if (ingredient.linkTitle != null)
+        'Linked to ${ingredient.linkTitle} (${ingredient.linkSubtitle})',
+      if (!scaledNutrition.isZero)
+        '${scaledNutrition.calories} cal • ${scaledNutrition.protein}g protein • ${scaledNutrition.carbs}g carbs',
+    ];
+
+    return lines.join('\n');
   }
 }
 
@@ -790,15 +825,44 @@ class _MetricCard extends StatelessWidget {
   }
 }
 
+class _NutritionPreviewGrid extends StatelessWidget {
+  const _NutritionPreviewGrid({required this.nutrition});
+
+  final NutritionSnapshot nutrition;
+
+  @override
+  Widget build(BuildContext context) {
+    final values = [
+      ('Calories', nutrition.calories.toString()),
+      ('Protein', '${nutrition.protein}g'),
+      ('Carbs', '${nutrition.carbs}g'),
+      ('Fat', '${nutrition.fat}g'),
+      ('Fiber', '${nutrition.fiber}g'),
+      ('Sodium', '${nutrition.sodium}mg'),
+      ('Sugar', '${nutrition.sugar}g'),
+    ];
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: values
+          .map((entry) => _MetricCard(label: entry.$1, value: entry.$2))
+          .toList(growable: false),
+    );
+  }
+}
+
 class RecipeEditorSheet extends StatefulWidget {
   const RecipeEditorSheet({
     super.key,
     this.initialDraft,
     this.existingRecipeName,
+    this.existingRecipeId,
   });
 
   final RecipeDraft? initialDraft;
   final String? existingRecipeName;
+  final String? existingRecipeId;
 
   @override
   State<RecipeEditorSheet> createState() => _RecipeEditorSheetState();
@@ -821,6 +885,7 @@ class _RecipeEditorSheetState extends State<RecipeEditorSheet> {
   late bool _isPinned;
   late final List<_IngredientControllers> _ingredients;
   late final List<TextEditingController> _directions;
+  late final List<TextEditingController> _previewControllers;
 
   @override
   void initState() {
@@ -861,9 +926,30 @@ class _RecipeEditorSheetState extends State<RecipeEditorSheet> {
     _directions = (draft?.directions ?? const <String>[])
         .map((direction) => TextEditingController(text: direction))
         .toList(growable: true);
+    _previewControllers = [
+      _titleController,
+      _versionController,
+      _servingsController,
+      _tagsController,
+      _notesController,
+      _caloriesController,
+      _proteinController,
+      _carbsController,
+      _fatController,
+      _fiberController,
+      _sodiumController,
+      _sugarController,
+    ];
+    for (final controller in _previewControllers) {
+      controller.addListener(_handleDraftChanged);
+    }
+    for (final ingredient in _ingredients) {
+      ingredient.addListener(_handleDraftChanged);
+    }
 
     if (_ingredients.isEmpty) {
       _ingredients.add(_IngredientControllers.empty());
+      _ingredients.last.addListener(_handleDraftChanged);
     }
     if (_directions.isEmpty) {
       _directions.add(TextEditingController());
@@ -872,6 +958,9 @@ class _RecipeEditorSheetState extends State<RecipeEditorSheet> {
 
   @override
   void dispose() {
+    for (final controller in _previewControllers) {
+      controller.removeListener(_handleDraftChanged);
+    }
     _titleController.dispose();
     _versionController.dispose();
     _servingsController.dispose();
@@ -895,199 +984,312 @@ class _RecipeEditorSheetState extends State<RecipeEditorSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final repository = RecipeAppScope.of(context).repositories.recipes;
     final viewInsets = MediaQuery.viewInsetsOf(context);
     final theme = Theme.of(context);
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + viewInsets.bottom),
-      child: Form(
-        key: _formKey,
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      widget.initialDraft == null
-                          ? 'Add Recipe'
-                          : 'Edit Recipe',
-                      style: theme.textTheme.headlineMedium,
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                widget.existingRecipeName == null
-                    ? 'Create a full recipe entry with ingredients, directions, nutrition, and variation labels.'
-                    : 'Updating ${widget.existingRecipeName} in the local Drift database.',
-                style: theme.textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 20),
-              _FormSection(
-                title: 'Details',
-                child: Column(
-                  children: [
-                    TextFormField(
-                      controller: _titleController,
-                      decoration: const InputDecoration(
-                        labelText: 'Recipe title',
-                      ),
-                      validator: _requiredText,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _versionController,
-                      decoration: const InputDecoration(
-                        labelText: 'Version label',
-                        hintText: 'Master, Single Serve, Deep Dish',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _servingsController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Servings'),
-                      validator: _positiveInteger,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _tagsController,
-                      decoration: const InputDecoration(
-                        labelText: 'Tags',
-                        hintText: 'Meal plan, Favorite scale, High protein',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    SwitchListTile.adaptive(
-                      value: _isPinned,
-                      onChanged: (value) => setState(() => _isPinned = value),
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Pin this recipe'),
-                    ),
-                    TextFormField(
-                      controller: _notesController,
-                      minLines: 3,
-                      maxLines: 5,
-                      decoration: const InputDecoration(labelText: 'Notes'),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              _FormSection(
-                title: 'Ingredients',
-                child: Column(
-                  children: [
-                    for (var index = 0; index < _ingredients.length; index++)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _IngredientEditorRow(
-                          index: index,
-                          controllers: _ingredients[index],
-                          canRemove: _ingredients.length > 1,
-                          canMoveUp: index > 0,
-                          canMoveDown: index < _ingredients.length - 1,
-                          onRemove: () => _removeIngredient(index),
-                          onMoveUp: () => _moveIngredient(index, index - 1),
-                          onMoveDown: () => _moveIngredient(index, index + 1),
-                        ),
-                      ),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: TextButton.icon(
-                        onPressed: _addIngredient,
-                        icon: const Icon(Icons.add),
-                        label: const Text('Add ingredient'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              _FormSection(
-                title: 'Directions',
-                child: Column(
-                  children: [
-                    for (var index = 0; index < _directions.length; index++)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _DirectionEditorRow(
-                          index: index,
-                          controller: _directions[index],
-                          canRemove: _directions.length > 1,
-                          canMoveUp: index > 0,
-                          canMoveDown: index < _directions.length - 1,
-                          onRemove: () => _removeDirection(index),
-                          onMoveUp: () => _moveDirection(index, index - 1),
-                          onMoveDown: () => _moveDirection(index, index + 1),
-                        ),
-                      ),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: TextButton.icon(
-                        onPressed: _addDirection,
-                        icon: const Icon(Icons.add),
-                        label: const Text('Add direction'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              _FormSection(
-                title: 'Nutrition Per Serving',
-                child: Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    _MetricField(
-                      controller: _caloriesController,
-                      label: 'Calories',
-                    ),
-                    _MetricField(
-                      controller: _proteinController,
-                      label: 'Protein',
-                    ),
-                    _MetricField(controller: _carbsController, label: 'Carbs'),
-                    _MetricField(controller: _fatController, label: 'Fat'),
-                    _MetricField(controller: _fiberController, label: 'Fiber'),
-                    _MetricField(
-                      controller: _sodiumController,
-                      label: 'Sodium',
-                    ),
-                    _MetricField(controller: _sugarController, label: 'Sugar'),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: _submit,
-                      child: const Text('Save'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
+    return StreamBuilder<List<IngredientLinkTarget>>(
+      stream: repository.watchIngredientLinkTargets(
+        excludingRecipeId: widget.existingRecipeId,
       ),
+      builder: (context, snapshot) {
+        final linkTargets = snapshot.data ?? const <IngredientLinkTarget>[];
+        final servings = _parsedServings;
+        final linkedNutrition = _linkedNutrition(linkTargets, servings);
+        final manualNutrition = _manualNutrition;
+        final estimatedNutrition = manualNutrition + linkedNutrition;
+        final previewWarnings = _linkedPreviewWarnings(linkTargets);
+
+        return Padding(
+          padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + viewInsets.bottom),
+          child: Form(
+            key: _formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          widget.initialDraft == null
+                              ? 'Add Recipe'
+                              : 'Edit Recipe',
+                          style: theme.textTheme.headlineMedium,
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    widget.existingRecipeName == null
+                        ? 'Create a full recipe entry with ingredients, directions, nutrition, and variation labels.'
+                        : 'Updating ${widget.existingRecipeName} in the local Drift database.',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 20),
+                  _FormSection(
+                    title: 'Details',
+                    child: Column(
+                      children: [
+                        TextFormField(
+                          controller: _titleController,
+                          decoration: const InputDecoration(
+                            labelText: 'Recipe title',
+                          ),
+                          validator: _requiredText,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _versionController,
+                          decoration: const InputDecoration(
+                            labelText: 'Version label',
+                            hintText: 'Master, Single Serve, Deep Dish',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _servingsController,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'Servings',
+                          ),
+                          validator: _positiveInteger,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _tagsController,
+                          decoration: const InputDecoration(
+                            labelText: 'Tags',
+                            hintText: 'Meal plan, Favorite scale, High protein',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        SwitchListTile.adaptive(
+                          value: _isPinned,
+                          onChanged: (value) =>
+                              setState(() => _isPinned = value),
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Pin this recipe'),
+                        ),
+                        TextFormField(
+                          controller: _notesController,
+                          minLines: 3,
+                          maxLines: 5,
+                          decoration: const InputDecoration(labelText: 'Notes'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _FormSection(
+                    title: 'Ingredients',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Link rows to pantry items or other recipes so their nutrition rolls up automatically. Qty must be numeric, and linked units can use common U.S./metric measures when the target has a compatible reference or override.',
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                        const SizedBox(height: 12),
+                        for (
+                          var index = 0;
+                          index < _ingredients.length;
+                          index++
+                        )
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _IngredientEditorRow(
+                              index: index,
+                              controllers: _ingredients[index],
+                              linkTargets: linkTargets,
+                              canRemove: _ingredients.length > 1,
+                              canMoveUp: index > 0,
+                              canMoveDown: index < _ingredients.length - 1,
+                              onRemove: () => _removeIngredient(index),
+                              onMoveUp: () => _moveIngredient(index, index - 1),
+                              onMoveDown: () =>
+                                  _moveIngredient(index, index + 1),
+                              onLinkTypeChanged: (value) =>
+                                  _setIngredientLinkType(
+                                    index,
+                                    value,
+                                    linkTargets,
+                                  ),
+                              onLinkTargetChanged: (value) =>
+                                  _setIngredientLinkTarget(
+                                    index,
+                                    value,
+                                    linkTargets,
+                                  ),
+                            ),
+                          ),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: _addIngredient,
+                            icon: const Icon(Icons.add),
+                            label: const Text('Add ingredient'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _FormSection(
+                    title: 'Directions',
+                    child: Column(
+                      children: [
+                        for (var index = 0; index < _directions.length; index++)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _DirectionEditorRow(
+                              index: index,
+                              controller: _directions[index],
+                              canRemove: _directions.length > 1,
+                              canMoveUp: index > 0,
+                              canMoveDown: index < _directions.length - 1,
+                              onRemove: () => _removeDirection(index),
+                              onMoveUp: () => _moveDirection(index, index - 1),
+                              onMoveDown: () =>
+                                  _moveDirection(index, index + 1),
+                            ),
+                          ),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: _addDirection,
+                            icon: const Icon(Icons.add),
+                            label: const Text('Add direction'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _FormSection(
+                    title: 'Estimated Nutrition',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Linked rows are calculated live from pantry and nested recipe references before save.',
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Linked contribution',
+                          style: theme.textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 10),
+                        _NutritionPreviewGrid(nutrition: linkedNutrition),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Manual entry',
+                          style: theme.textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 10),
+                        _NutritionPreviewGrid(nutrition: manualNutrition),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Estimated total per serving',
+                          style: theme.textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 10),
+                        _NutritionPreviewGrid(nutrition: estimatedNutrition),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Based on $servings serving${servings == 1 ? '' : 's'}. Linked rows accept matching count units plus common mass and volume conversions when the target exposes compatible reference data.',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                        for (final warning in previewWarnings) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            warning,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.error,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _FormSection(
+                    title: 'Manual Nutrition Per Serving',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Use these fields only for anything not covered by linked ingredients. Linked pantry items and nested recipes are added automatically.',
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: [
+                            _MetricField(
+                              controller: _caloriesController,
+                              label: 'Calories',
+                            ),
+                            _MetricField(
+                              controller: _proteinController,
+                              label: 'Protein',
+                            ),
+                            _MetricField(
+                              controller: _carbsController,
+                              label: 'Carbs',
+                            ),
+                            _MetricField(
+                              controller: _fatController,
+                              label: 'Fat',
+                            ),
+                            _MetricField(
+                              controller: _fiberController,
+                              label: 'Fiber',
+                            ),
+                            _MetricField(
+                              controller: _sodiumController,
+                              label: 'Sodium',
+                            ),
+                            _MetricField(
+                              controller: _sugarController,
+                              label: 'Sugar',
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const Text('Cancel'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: _submit,
+                          child: const Text('Save'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1108,13 +1310,16 @@ class _RecipeEditorSheetState extends State<RecipeEditorSheet> {
 
   void _addIngredient() {
     setState(() {
-      _ingredients.add(_IngredientControllers.empty());
+      final ingredient = _IngredientControllers.empty();
+      ingredient.addListener(_handleDraftChanged);
+      _ingredients.add(ingredient);
     });
   }
 
   void _removeIngredient(int index) {
     setState(() {
       final removed = _ingredients.removeAt(index);
+      removed.removeListener(_handleDraftChanged);
       removed.dispose();
     });
   }
@@ -1128,6 +1333,66 @@ class _RecipeEditorSheetState extends State<RecipeEditorSheet> {
       final item = _ingredients.removeAt(from);
       _ingredients.insert(to, item);
     });
+  }
+
+  void _setIngredientLinkType(
+    int index,
+    RecipeIngredientType value,
+    List<IngredientLinkTarget> linkTargets,
+  ) {
+    setState(() {
+      final ingredient = _ingredients[index];
+      ingredient.linkType = value;
+      ingredient.linkedPantryItemId = null;
+      ingredient.linkedRecipeId = null;
+
+      if (value == RecipeIngredientType.freeform) {
+        return;
+      }
+
+      final firstMatch = linkTargets.cast<IngredientLinkTarget?>().firstWhere(
+        (target) => target?.type == value,
+        orElse: () => null,
+      );
+      if (firstMatch != null) {
+        _applyIngredientTarget(ingredient, firstMatch);
+      }
+    });
+  }
+
+  void _setIngredientLinkTarget(
+    int index,
+    String? targetId,
+    List<IngredientLinkTarget> linkTargets,
+  ) {
+    if (targetId == null) {
+      return;
+    }
+
+    final target = linkTargets.cast<IngredientLinkTarget?>().firstWhere(
+      (item) => item?.id == targetId,
+      orElse: () => null,
+    );
+    if (target == null) {
+      return;
+    }
+
+    setState(() {
+      _applyIngredientTarget(_ingredients[index], target);
+    });
+  }
+
+  void _applyIngredientTarget(
+    _IngredientControllers ingredient,
+    IngredientLinkTarget target,
+  ) {
+    ingredient.linkType = target.type;
+    ingredient.linkedPantryItemId =
+        target.type == RecipeIngredientType.pantryItem ? target.id : null;
+    ingredient.linkedRecipeId =
+        target.type == RecipeIngredientType.recipeReference ? target.id : null;
+    ingredient.item.text = target.title;
+    ingredient.unit.text = target.referenceUnit;
   }
 
   void _addDirection() {
@@ -1156,6 +1421,23 @@ class _RecipeEditorSheetState extends State<RecipeEditorSheet> {
 
   void _submit() {
     if (!_formKey.currentState!.validate()) {
+      return;
+    }
+    final linkedIngredientIndex = _ingredients.indexWhere(
+      (ingredient) =>
+          ingredient.linkType != RecipeIngredientType.freeform &&
+          (ingredient.linkedTargetId == null ||
+              _RecipeScaling.tryParseQuantity(ingredient.quantity.text) ==
+                  null),
+    );
+    if (linkedIngredientIndex != -1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Ingredient ${linkedIngredientIndex + 1} needs a linked target and numeric quantity.',
+          ),
+        ),
+      );
       return;
     }
 
@@ -1194,6 +1476,120 @@ class _RecipeEditorSheetState extends State<RecipeEditorSheet> {
       ),
     );
   }
+
+  void _handleDraftChanged() {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {});
+  }
+
+  int get _parsedServings {
+    final servings = int.tryParse(_servingsController.text);
+    if (servings == null || servings <= 0) {
+      return 1;
+    }
+    return servings;
+  }
+
+  NutritionSnapshot get _manualNutrition {
+    int valueOf(TextEditingController controller) =>
+        int.tryParse(controller.text.trim()) ?? 0;
+
+    return NutritionSnapshot(
+      calories: valueOf(_caloriesController),
+      protein: valueOf(_proteinController),
+      carbs: valueOf(_carbsController),
+      fat: valueOf(_fatController),
+      fiber: valueOf(_fiberController),
+      sodium: valueOf(_sodiumController),
+      sugar: valueOf(_sugarController),
+    );
+  }
+
+  NutritionSnapshot _linkedNutrition(
+    List<IngredientLinkTarget> linkTargets,
+    int servings,
+  ) {
+    var batchNutrition = NutritionSnapshot.zero;
+
+    for (final ingredient in _ingredients) {
+      final targetId = ingredient.linkedTargetId;
+      if (ingredient.linkType == RecipeIngredientType.freeform ||
+          targetId == null) {
+        continue;
+      }
+
+      final target = linkTargets.cast<IngredientLinkTarget?>().firstWhere(
+        (item) => item?.id == targetId,
+        orElse: () => null,
+      );
+      if (target == null) {
+        continue;
+      }
+
+      final resolution = _resolveLinkedQuantity(ingredient, target);
+      if (!resolution.isResolved) {
+        continue;
+      }
+
+      batchNutrition += target.nutrition.scale(resolution.referenceUnits!);
+    }
+
+    return batchNutrition.divide(servings);
+  }
+
+  List<String> _linkedPreviewWarnings(List<IngredientLinkTarget> linkTargets) {
+    final warnings = <String>[];
+
+    for (var index = 0; index < _ingredients.length; index++) {
+      final ingredient = _ingredients[index];
+      if (ingredient.linkType == RecipeIngredientType.freeform) {
+        continue;
+      }
+
+      final target = linkTargets.cast<IngredientLinkTarget?>().firstWhere(
+        (item) => item?.id == ingredient.linkedTargetId,
+        orElse: () => null,
+      );
+
+      if (target == null) {
+        warnings.add('Ingredient ${index + 1}: linked target is missing.');
+        continue;
+      }
+
+      final resolution = _resolveLinkedQuantity(ingredient, target);
+      if (resolution.issue == LinkedQuantityIssue.invalidQuantity) {
+        warnings.add('Ingredient ${index + 1}: linked qty must be numeric.');
+        continue;
+      }
+      if (resolution.issue == LinkedQuantityIssue.incompatibleUnit) {
+        final unitLabel = ingredient.unit.text.trim().isEmpty
+            ? 'blank'
+            : ingredient.unit.text.trim();
+        warnings.add(
+          'Ingredient ${index + 1}: unit "$unitLabel" does not convert to ${MeasurementUnits.describeReferenceUnit(referenceUnit: target.referenceUnit, referenceUnitEquivalentQuantity: target.referenceUnitEquivalentQuantity, referenceUnitEquivalentUnit: target.referenceUnitEquivalentUnit, referenceUnitWeightGrams: target.referenceUnitWeightGrams)}.',
+        );
+      }
+    }
+
+    return warnings;
+  }
+
+  LinkedQuantityResolution _resolveLinkedQuantity(
+    _IngredientControllers ingredient,
+    IngredientLinkTarget target,
+  ) {
+    return MeasurementUnits.resolveLinkedReferenceUnits(
+      quantity: MeasurementUnits.parseQuantity(ingredient.quantity.text),
+      ingredientUnit: ingredient.unit.text,
+      referenceUnit: target.referenceUnit,
+      referenceUnitEquivalentQuantity: target.referenceUnitEquivalentQuantity,
+      referenceUnitEquivalentUnit: target.referenceUnitEquivalentUnit,
+      referenceUnitWeightGrams: target.referenceUnitWeightGrams,
+    );
+  }
 }
 
 class _FormSection extends StatelessWidget {
@@ -1230,25 +1626,43 @@ class _IngredientEditorRow extends StatelessWidget {
   const _IngredientEditorRow({
     required this.index,
     required this.controllers,
+    required this.linkTargets,
     required this.canRemove,
     required this.canMoveUp,
     required this.canMoveDown,
     required this.onRemove,
     required this.onMoveUp,
     required this.onMoveDown,
+    required this.onLinkTypeChanged,
+    required this.onLinkTargetChanged,
   });
 
   final int index;
   final _IngredientControllers controllers;
+  final List<IngredientLinkTarget> linkTargets;
   final bool canRemove;
   final bool canMoveUp;
   final bool canMoveDown;
   final VoidCallback onRemove;
   final VoidCallback onMoveUp;
   final VoidCallback onMoveDown;
+  final ValueChanged<RecipeIngredientType> onLinkTypeChanged;
+  final ValueChanged<String?> onLinkTargetChanged;
 
   @override
   Widget build(BuildContext context) {
+    final pantryTargets = linkTargets
+        .where((target) => target.type == RecipeIngredientType.pantryItem)
+        .toList(growable: false);
+    final recipeTargets = linkTargets
+        .where((target) => target.type == RecipeIngredientType.recipeReference)
+        .toList(growable: false);
+    final selectedTargetId = controllers.linkedTargetId;
+    final selectedTarget = linkTargets.cast<IngredientLinkTarget?>().firstWhere(
+      (target) => target?.id == selectedTargetId,
+      orElse: () => null,
+    );
+
     return DecoratedBox(
       decoration: BoxDecoration(
         color: const Color(0xFFF0E6D7),
@@ -1311,6 +1725,66 @@ class _IngredientEditorRow extends StatelessWidget {
                 hintText: 'Diced, softened, drained, etc.',
               ),
             ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<RecipeIngredientType>(
+              key: ValueKey(
+                'ingredient-link-type-$index-${controllers.linkType.name}',
+              ),
+              initialValue: controllers.linkType,
+              decoration: const InputDecoration(labelText: 'Nutrition source'),
+              items: RecipeIngredientType.values
+                  .map(
+                    (type) => DropdownMenuItem<RecipeIngredientType>(
+                      value: type,
+                      child: Text(type.label),
+                    ),
+                  )
+                  .toList(growable: false),
+              onChanged: (value) {
+                if (value != null) {
+                  onLinkTypeChanged(value);
+                }
+              },
+            ),
+            if (controllers.linkType != RecipeIngredientType.freeform) ...[
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                key: ValueKey(
+                  'ingredient-link-target-$index-$selectedTargetId',
+                ),
+                initialValue: selectedTarget?.id,
+                decoration: InputDecoration(
+                  labelText: switch (controllers.linkType) {
+                    RecipeIngredientType.pantryItem => 'Linked pantry item',
+                    RecipeIngredientType.recipeReference =>
+                      'Linked nested recipe',
+                    RecipeIngredientType.freeform => 'Linked target',
+                  },
+                ),
+                items:
+                    (controllers.linkType == RecipeIngredientType.pantryItem
+                            ? pantryTargets
+                            : recipeTargets)
+                        .map(
+                          (target) => DropdownMenuItem<String>(
+                            value: target.id,
+                            child: Text(target.title),
+                          ),
+                        )
+                        .toList(growable: false),
+                onChanged: onLinkTargetChanged,
+              ),
+              if (selectedTarget != null) ...[
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    selectedTarget.subtitle,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            ],
           ],
         ),
       ),
@@ -1406,6 +1880,9 @@ class _IngredientControllers {
     required this.unit,
     required this.item,
     required this.preparation,
+    this.linkType = RecipeIngredientType.freeform,
+    this.linkedPantryItemId,
+    this.linkedRecipeId,
   });
 
   factory _IngredientControllers.empty() {
@@ -1423,6 +1900,9 @@ class _IngredientControllers {
       unit: TextEditingController(text: draft.unit),
       item: TextEditingController(text: draft.item),
       preparation: TextEditingController(text: draft.preparation),
+      linkType: draft.linkType,
+      linkedPantryItemId: draft.linkedPantryItemId,
+      linkedRecipeId: draft.linkedRecipeId,
     );
   }
 
@@ -1430,6 +1910,15 @@ class _IngredientControllers {
   final TextEditingController unit;
   final TextEditingController item;
   final TextEditingController preparation;
+  RecipeIngredientType linkType;
+  String? linkedPantryItemId;
+  String? linkedRecipeId;
+
+  String? get linkedTargetId => switch (linkType) {
+    RecipeIngredientType.freeform => null,
+    RecipeIngredientType.pantryItem => linkedPantryItemId,
+    RecipeIngredientType.recipeReference => linkedRecipeId,
+  };
 
   RecipeIngredientDraft toDraft() {
     return RecipeIngredientDraft(
@@ -1437,7 +1926,24 @@ class _IngredientControllers {
       unit: unit.text.trim(),
       item: item.text.trim(),
       preparation: preparation.text.trim(),
+      linkType: linkType,
+      linkedPantryItemId: linkedPantryItemId,
+      linkedRecipeId: linkedRecipeId,
     );
+  }
+
+  void addListener(VoidCallback listener) {
+    quantity.addListener(listener);
+    unit.addListener(listener);
+    item.addListener(listener);
+    preparation.addListener(listener);
+  }
+
+  void removeListener(VoidCallback listener) {
+    quantity.removeListener(listener);
+    unit.removeListener(listener);
+    item.removeListener(listener);
+    preparation.removeListener(listener);
   }
 
   void dispose() {
@@ -1457,6 +1963,14 @@ extension on RecipeSortOrder {
   String get shortLabel => switch (this) {
     RecipeSortOrder.caloriesLowToHigh => 'Low to High',
     RecipeSortOrder.caloriesHighToLow => 'High to Low',
+  };
+}
+
+extension on RecipeIngredientType {
+  String get label => switch (this) {
+    RecipeIngredientType.freeform => 'Freeform only',
+    RecipeIngredientType.pantryItem => 'Linked pantry item',
+    RecipeIngredientType.recipeReference => 'Linked nested recipe',
   };
 }
 
@@ -1490,54 +2004,10 @@ abstract final class _RecipeScaling {
   }
 
   static double? tryParseQuantity(String rawQuantity) {
-    final trimmed = rawQuantity.trim();
-    if (trimmed.isEmpty) {
-      return null;
-    }
-
-    if (trimmed.contains(' ')) {
-      final parts = trimmed.split(RegExp(r'\s+'));
-      if (parts.length == 2) {
-        final whole = double.tryParse(parts[0]);
-        final fraction = _parseFraction(parts[1]);
-        if (whole != null && fraction != null) {
-          return whole + fraction;
-        }
-      }
-    }
-
-    final fraction = _parseFraction(trimmed);
-    if (fraction != null) {
-      return fraction;
-    }
-
-    return double.tryParse(trimmed);
-  }
-
-  static double? _parseFraction(String value) {
-    final parts = value.split('/');
-    if (parts.length != 2) {
-      return null;
-    }
-
-    final numerator = double.tryParse(parts[0]);
-    final denominator = double.tryParse(parts[1]);
-    if (numerator == null || denominator == null || denominator == 0) {
-      return null;
-    }
-
-    return numerator / denominator;
+    return MeasurementUnits.parseQuantity(rawQuantity);
   }
 
   static String formatDecimal(double value) {
-    final rounded = value.roundToDouble();
-    if ((value - rounded).abs() < 0.001) {
-      return rounded.toInt().toString();
-    }
-
-    return value
-        .toStringAsFixed(2)
-        .replaceFirst(RegExp(r'0+$'), '')
-        .replaceFirst(RegExp(r'\.$'), '');
+    return MeasurementUnits.formatDecimal(value);
   }
 }

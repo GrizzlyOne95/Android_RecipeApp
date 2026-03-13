@@ -1281,6 +1281,40 @@ class $RecipeIngredientsTable extends RecipeIngredients
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _ingredientTypeMeta = const VerificationMeta(
+    'ingredientType',
+  );
+  @override
+  late final GeneratedColumn<String> ingredientType = GeneratedColumn<String>(
+    'ingredient_type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('freeform'),
+  );
+  static const VerificationMeta _linkedPantryItemIdMeta =
+      const VerificationMeta('linkedPantryItemId');
+  @override
+  late final GeneratedColumn<String> linkedPantryItemId =
+      GeneratedColumn<String>(
+        'linked_pantry_item_id',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _linkedRecipeIdMeta = const VerificationMeta(
+    'linkedRecipeId',
+  );
+  @override
+  late final GeneratedColumn<String> linkedRecipeId = GeneratedColumn<String>(
+    'linked_recipe_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -1290,6 +1324,9 @@ class $RecipeIngredientsTable extends RecipeIngredients
     unit,
     item,
     preparation,
+    ingredientType,
+    linkedPantryItemId,
+    linkedRecipeId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1357,6 +1394,33 @@ class $RecipeIngredientsTable extends RecipeIngredients
     } else if (isInserting) {
       context.missing(_preparationMeta);
     }
+    if (data.containsKey('ingredient_type')) {
+      context.handle(
+        _ingredientTypeMeta,
+        ingredientType.isAcceptableOrUnknown(
+          data['ingredient_type']!,
+          _ingredientTypeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('linked_pantry_item_id')) {
+      context.handle(
+        _linkedPantryItemIdMeta,
+        linkedPantryItemId.isAcceptableOrUnknown(
+          data['linked_pantry_item_id']!,
+          _linkedPantryItemIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('linked_recipe_id')) {
+      context.handle(
+        _linkedRecipeIdMeta,
+        linkedRecipeId.isAcceptableOrUnknown(
+          data['linked_recipe_id']!,
+          _linkedRecipeIdMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -1394,6 +1458,18 @@ class $RecipeIngredientsTable extends RecipeIngredients
         DriftSqlType.string,
         data['${effectivePrefix}preparation'],
       )!,
+      ingredientType: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}ingredient_type'],
+      )!,
+      linkedPantryItemId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}linked_pantry_item_id'],
+      ),
+      linkedRecipeId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}linked_recipe_id'],
+      ),
     );
   }
 
@@ -1412,6 +1488,9 @@ class RecipeIngredient extends DataClass
   final String unit;
   final String item;
   final String preparation;
+  final String ingredientType;
+  final String? linkedPantryItemId;
+  final String? linkedRecipeId;
   const RecipeIngredient({
     required this.id,
     required this.recipeId,
@@ -1420,6 +1499,9 @@ class RecipeIngredient extends DataClass
     required this.unit,
     required this.item,
     required this.preparation,
+    required this.ingredientType,
+    this.linkedPantryItemId,
+    this.linkedRecipeId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1431,6 +1513,13 @@ class RecipeIngredient extends DataClass
     map['unit'] = Variable<String>(unit);
     map['item'] = Variable<String>(item);
     map['preparation'] = Variable<String>(preparation);
+    map['ingredient_type'] = Variable<String>(ingredientType);
+    if (!nullToAbsent || linkedPantryItemId != null) {
+      map['linked_pantry_item_id'] = Variable<String>(linkedPantryItemId);
+    }
+    if (!nullToAbsent || linkedRecipeId != null) {
+      map['linked_recipe_id'] = Variable<String>(linkedRecipeId);
+    }
     return map;
   }
 
@@ -1443,6 +1532,13 @@ class RecipeIngredient extends DataClass
       unit: Value(unit),
       item: Value(item),
       preparation: Value(preparation),
+      ingredientType: Value(ingredientType),
+      linkedPantryItemId: linkedPantryItemId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(linkedPantryItemId),
+      linkedRecipeId: linkedRecipeId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(linkedRecipeId),
     );
   }
 
@@ -1459,6 +1555,11 @@ class RecipeIngredient extends DataClass
       unit: serializer.fromJson<String>(json['unit']),
       item: serializer.fromJson<String>(json['item']),
       preparation: serializer.fromJson<String>(json['preparation']),
+      ingredientType: serializer.fromJson<String>(json['ingredientType']),
+      linkedPantryItemId: serializer.fromJson<String?>(
+        json['linkedPantryItemId'],
+      ),
+      linkedRecipeId: serializer.fromJson<String?>(json['linkedRecipeId']),
     );
   }
   @override
@@ -1472,6 +1573,9 @@ class RecipeIngredient extends DataClass
       'unit': serializer.toJson<String>(unit),
       'item': serializer.toJson<String>(item),
       'preparation': serializer.toJson<String>(preparation),
+      'ingredientType': serializer.toJson<String>(ingredientType),
+      'linkedPantryItemId': serializer.toJson<String?>(linkedPantryItemId),
+      'linkedRecipeId': serializer.toJson<String?>(linkedRecipeId),
     };
   }
 
@@ -1483,6 +1587,9 @@ class RecipeIngredient extends DataClass
     String? unit,
     String? item,
     String? preparation,
+    String? ingredientType,
+    Value<String?> linkedPantryItemId = const Value.absent(),
+    Value<String?> linkedRecipeId = const Value.absent(),
   }) => RecipeIngredient(
     id: id ?? this.id,
     recipeId: recipeId ?? this.recipeId,
@@ -1491,6 +1598,13 @@ class RecipeIngredient extends DataClass
     unit: unit ?? this.unit,
     item: item ?? this.item,
     preparation: preparation ?? this.preparation,
+    ingredientType: ingredientType ?? this.ingredientType,
+    linkedPantryItemId: linkedPantryItemId.present
+        ? linkedPantryItemId.value
+        : this.linkedPantryItemId,
+    linkedRecipeId: linkedRecipeId.present
+        ? linkedRecipeId.value
+        : this.linkedRecipeId,
   );
   RecipeIngredient copyWithCompanion(RecipeIngredientsCompanion data) {
     return RecipeIngredient(
@@ -1503,6 +1617,15 @@ class RecipeIngredient extends DataClass
       preparation: data.preparation.present
           ? data.preparation.value
           : this.preparation,
+      ingredientType: data.ingredientType.present
+          ? data.ingredientType.value
+          : this.ingredientType,
+      linkedPantryItemId: data.linkedPantryItemId.present
+          ? data.linkedPantryItemId.value
+          : this.linkedPantryItemId,
+      linkedRecipeId: data.linkedRecipeId.present
+          ? data.linkedRecipeId.value
+          : this.linkedRecipeId,
     );
   }
 
@@ -1515,14 +1638,27 @@ class RecipeIngredient extends DataClass
           ..write('quantity: $quantity, ')
           ..write('unit: $unit, ')
           ..write('item: $item, ')
-          ..write('preparation: $preparation')
+          ..write('preparation: $preparation, ')
+          ..write('ingredientType: $ingredientType, ')
+          ..write('linkedPantryItemId: $linkedPantryItemId, ')
+          ..write('linkedRecipeId: $linkedRecipeId')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, recipeId, position, quantity, unit, item, preparation);
+  int get hashCode => Object.hash(
+    id,
+    recipeId,
+    position,
+    quantity,
+    unit,
+    item,
+    preparation,
+    ingredientType,
+    linkedPantryItemId,
+    linkedRecipeId,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1533,7 +1669,10 @@ class RecipeIngredient extends DataClass
           other.quantity == this.quantity &&
           other.unit == this.unit &&
           other.item == this.item &&
-          other.preparation == this.preparation);
+          other.preparation == this.preparation &&
+          other.ingredientType == this.ingredientType &&
+          other.linkedPantryItemId == this.linkedPantryItemId &&
+          other.linkedRecipeId == this.linkedRecipeId);
 }
 
 class RecipeIngredientsCompanion extends UpdateCompanion<RecipeIngredient> {
@@ -1544,6 +1683,9 @@ class RecipeIngredientsCompanion extends UpdateCompanion<RecipeIngredient> {
   final Value<String> unit;
   final Value<String> item;
   final Value<String> preparation;
+  final Value<String> ingredientType;
+  final Value<String?> linkedPantryItemId;
+  final Value<String?> linkedRecipeId;
   const RecipeIngredientsCompanion({
     this.id = const Value.absent(),
     this.recipeId = const Value.absent(),
@@ -1552,6 +1694,9 @@ class RecipeIngredientsCompanion extends UpdateCompanion<RecipeIngredient> {
     this.unit = const Value.absent(),
     this.item = const Value.absent(),
     this.preparation = const Value.absent(),
+    this.ingredientType = const Value.absent(),
+    this.linkedPantryItemId = const Value.absent(),
+    this.linkedRecipeId = const Value.absent(),
   });
   RecipeIngredientsCompanion.insert({
     this.id = const Value.absent(),
@@ -1561,6 +1706,9 @@ class RecipeIngredientsCompanion extends UpdateCompanion<RecipeIngredient> {
     required String unit,
     required String item,
     required String preparation,
+    this.ingredientType = const Value.absent(),
+    this.linkedPantryItemId = const Value.absent(),
+    this.linkedRecipeId = const Value.absent(),
   }) : recipeId = Value(recipeId),
        position = Value(position),
        quantity = Value(quantity),
@@ -1575,6 +1723,9 @@ class RecipeIngredientsCompanion extends UpdateCompanion<RecipeIngredient> {
     Expression<String>? unit,
     Expression<String>? item,
     Expression<String>? preparation,
+    Expression<String>? ingredientType,
+    Expression<String>? linkedPantryItemId,
+    Expression<String>? linkedRecipeId,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -1584,6 +1735,10 @@ class RecipeIngredientsCompanion extends UpdateCompanion<RecipeIngredient> {
       if (unit != null) 'unit': unit,
       if (item != null) 'item': item,
       if (preparation != null) 'preparation': preparation,
+      if (ingredientType != null) 'ingredient_type': ingredientType,
+      if (linkedPantryItemId != null)
+        'linked_pantry_item_id': linkedPantryItemId,
+      if (linkedRecipeId != null) 'linked_recipe_id': linkedRecipeId,
     });
   }
 
@@ -1595,6 +1750,9 @@ class RecipeIngredientsCompanion extends UpdateCompanion<RecipeIngredient> {
     Value<String>? unit,
     Value<String>? item,
     Value<String>? preparation,
+    Value<String>? ingredientType,
+    Value<String?>? linkedPantryItemId,
+    Value<String?>? linkedRecipeId,
   }) {
     return RecipeIngredientsCompanion(
       id: id ?? this.id,
@@ -1604,6 +1762,9 @@ class RecipeIngredientsCompanion extends UpdateCompanion<RecipeIngredient> {
       unit: unit ?? this.unit,
       item: item ?? this.item,
       preparation: preparation ?? this.preparation,
+      ingredientType: ingredientType ?? this.ingredientType,
+      linkedPantryItemId: linkedPantryItemId ?? this.linkedPantryItemId,
+      linkedRecipeId: linkedRecipeId ?? this.linkedRecipeId,
     );
   }
 
@@ -1631,6 +1792,15 @@ class RecipeIngredientsCompanion extends UpdateCompanion<RecipeIngredient> {
     if (preparation.present) {
       map['preparation'] = Variable<String>(preparation.value);
     }
+    if (ingredientType.present) {
+      map['ingredient_type'] = Variable<String>(ingredientType.value);
+    }
+    if (linkedPantryItemId.present) {
+      map['linked_pantry_item_id'] = Variable<String>(linkedPantryItemId.value);
+    }
+    if (linkedRecipeId.present) {
+      map['linked_recipe_id'] = Variable<String>(linkedRecipeId.value);
+    }
     return map;
   }
 
@@ -1643,7 +1813,10 @@ class RecipeIngredientsCompanion extends UpdateCompanion<RecipeIngredient> {
           ..write('quantity: $quantity, ')
           ..write('unit: $unit, ')
           ..write('item: $item, ')
-          ..write('preparation: $preparation')
+          ..write('preparation: $preparation, ')
+          ..write('ingredientType: $ingredientType, ')
+          ..write('linkedPantryItemId: $linkedPantryItemId, ')
+          ..write('linkedRecipeId: $linkedRecipeId')
           ..write(')'))
         .toString();
   }
@@ -1992,6 +2165,51 @@ class $PantryItemsTableTable extends PantryItemsTable
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _referenceUnitMeta = const VerificationMeta(
+    'referenceUnit',
+  );
+  @override
+  late final GeneratedColumn<String> referenceUnit = GeneratedColumn<String>(
+    'reference_unit',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('serving'),
+  );
+  static const VerificationMeta _referenceUnitEquivalentQuantityMeta =
+      const VerificationMeta('referenceUnitEquivalentQuantity');
+  @override
+  late final GeneratedColumn<double> referenceUnitEquivalentQuantity =
+      GeneratedColumn<double>(
+        'reference_unit_equivalent_quantity',
+        aliasedName,
+        true,
+        type: DriftSqlType.double,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _referenceUnitEquivalentUnitMeta =
+      const VerificationMeta('referenceUnitEquivalentUnit');
+  @override
+  late final GeneratedColumn<String> referenceUnitEquivalentUnit =
+      GeneratedColumn<String>(
+        'reference_unit_equivalent_unit',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _referenceUnitWeightGramsMeta =
+      const VerificationMeta('referenceUnitWeightGrams');
+  @override
+  late final GeneratedColumn<double> referenceUnitWeightGrams =
+      GeneratedColumn<double>(
+        'reference_unit_weight_grams',
+        aliasedName,
+        true,
+        type: DriftSqlType.double,
+        requiredDuringInsert: false,
+      );
   static const VerificationMeta _sourceMeta = const VerificationMeta('source');
   @override
   late final GeneratedColumn<String> source = GeneratedColumn<String>(
@@ -2115,6 +2333,10 @@ class $PantryItemsTableTable extends PantryItemsTable
     id,
     title,
     quantityLabel,
+    referenceUnit,
+    referenceUnitEquivalentQuantity,
+    referenceUnitEquivalentUnit,
+    referenceUnitWeightGrams,
     source,
     accentHex,
     barcode,
@@ -2163,6 +2385,42 @@ class $PantryItemsTableTable extends PantryItemsTable
       );
     } else if (isInserting) {
       context.missing(_quantityLabelMeta);
+    }
+    if (data.containsKey('reference_unit')) {
+      context.handle(
+        _referenceUnitMeta,
+        referenceUnit.isAcceptableOrUnknown(
+          data['reference_unit']!,
+          _referenceUnitMeta,
+        ),
+      );
+    }
+    if (data.containsKey('reference_unit_equivalent_quantity')) {
+      context.handle(
+        _referenceUnitEquivalentQuantityMeta,
+        referenceUnitEquivalentQuantity.isAcceptableOrUnknown(
+          data['reference_unit_equivalent_quantity']!,
+          _referenceUnitEquivalentQuantityMeta,
+        ),
+      );
+    }
+    if (data.containsKey('reference_unit_equivalent_unit')) {
+      context.handle(
+        _referenceUnitEquivalentUnitMeta,
+        referenceUnitEquivalentUnit.isAcceptableOrUnknown(
+          data['reference_unit_equivalent_unit']!,
+          _referenceUnitEquivalentUnitMeta,
+        ),
+      );
+    }
+    if (data.containsKey('reference_unit_weight_grams')) {
+      context.handle(
+        _referenceUnitWeightGramsMeta,
+        referenceUnitWeightGrams.isAcceptableOrUnknown(
+          data['reference_unit_weight_grams']!,
+          _referenceUnitWeightGramsMeta,
+        ),
+      );
     }
     if (data.containsKey('source')) {
       context.handle(
@@ -2277,6 +2535,22 @@ class $PantryItemsTableTable extends PantryItemsTable
         DriftSqlType.string,
         data['${effectivePrefix}quantity_label'],
       )!,
+      referenceUnit: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}reference_unit'],
+      )!,
+      referenceUnitEquivalentQuantity: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}reference_unit_equivalent_quantity'],
+      ),
+      referenceUnitEquivalentUnit: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}reference_unit_equivalent_unit'],
+      ),
+      referenceUnitWeightGrams: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}reference_unit_weight_grams'],
+      ),
       source: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}source'],
@@ -2339,6 +2613,10 @@ class PantryItemsTableData extends DataClass
   final String id;
   final String title;
   final String quantityLabel;
+  final String referenceUnit;
+  final double? referenceUnitEquivalentQuantity;
+  final String? referenceUnitEquivalentUnit;
+  final double? referenceUnitWeightGrams;
   final String source;
   final int accentHex;
   final String? barcode;
@@ -2355,6 +2633,10 @@ class PantryItemsTableData extends DataClass
     required this.id,
     required this.title,
     required this.quantityLabel,
+    required this.referenceUnit,
+    this.referenceUnitEquivalentQuantity,
+    this.referenceUnitEquivalentUnit,
+    this.referenceUnitWeightGrams,
     required this.source,
     required this.accentHex,
     this.barcode,
@@ -2374,6 +2656,22 @@ class PantryItemsTableData extends DataClass
     map['id'] = Variable<String>(id);
     map['title'] = Variable<String>(title);
     map['quantity_label'] = Variable<String>(quantityLabel);
+    map['reference_unit'] = Variable<String>(referenceUnit);
+    if (!nullToAbsent || referenceUnitEquivalentQuantity != null) {
+      map['reference_unit_equivalent_quantity'] = Variable<double>(
+        referenceUnitEquivalentQuantity,
+      );
+    }
+    if (!nullToAbsent || referenceUnitEquivalentUnit != null) {
+      map['reference_unit_equivalent_unit'] = Variable<String>(
+        referenceUnitEquivalentUnit,
+      );
+    }
+    if (!nullToAbsent || referenceUnitWeightGrams != null) {
+      map['reference_unit_weight_grams'] = Variable<double>(
+        referenceUnitWeightGrams,
+      );
+    }
     map['source'] = Variable<String>(source);
     map['accent_hex'] = Variable<int>(accentHex);
     if (!nullToAbsent || barcode != null) {
@@ -2398,6 +2696,18 @@ class PantryItemsTableData extends DataClass
       id: Value(id),
       title: Value(title),
       quantityLabel: Value(quantityLabel),
+      referenceUnit: Value(referenceUnit),
+      referenceUnitEquivalentQuantity:
+          referenceUnitEquivalentQuantity == null && nullToAbsent
+          ? const Value.absent()
+          : Value(referenceUnitEquivalentQuantity),
+      referenceUnitEquivalentUnit:
+          referenceUnitEquivalentUnit == null && nullToAbsent
+          ? const Value.absent()
+          : Value(referenceUnitEquivalentUnit),
+      referenceUnitWeightGrams: referenceUnitWeightGrams == null && nullToAbsent
+          ? const Value.absent()
+          : Value(referenceUnitWeightGrams),
       source: Value(source),
       accentHex: Value(accentHex),
       barcode: barcode == null && nullToAbsent
@@ -2426,6 +2736,16 @@ class PantryItemsTableData extends DataClass
       id: serializer.fromJson<String>(json['id']),
       title: serializer.fromJson<String>(json['title']),
       quantityLabel: serializer.fromJson<String>(json['quantityLabel']),
+      referenceUnit: serializer.fromJson<String>(json['referenceUnit']),
+      referenceUnitEquivalentQuantity: serializer.fromJson<double?>(
+        json['referenceUnitEquivalentQuantity'],
+      ),
+      referenceUnitEquivalentUnit: serializer.fromJson<String?>(
+        json['referenceUnitEquivalentUnit'],
+      ),
+      referenceUnitWeightGrams: serializer.fromJson<double?>(
+        json['referenceUnitWeightGrams'],
+      ),
       source: serializer.fromJson<String>(json['source']),
       accentHex: serializer.fromJson<int>(json['accentHex']),
       barcode: serializer.fromJson<String?>(json['barcode']),
@@ -2447,6 +2767,16 @@ class PantryItemsTableData extends DataClass
       'id': serializer.toJson<String>(id),
       'title': serializer.toJson<String>(title),
       'quantityLabel': serializer.toJson<String>(quantityLabel),
+      'referenceUnit': serializer.toJson<String>(referenceUnit),
+      'referenceUnitEquivalentQuantity': serializer.toJson<double?>(
+        referenceUnitEquivalentQuantity,
+      ),
+      'referenceUnitEquivalentUnit': serializer.toJson<String?>(
+        referenceUnitEquivalentUnit,
+      ),
+      'referenceUnitWeightGrams': serializer.toJson<double?>(
+        referenceUnitWeightGrams,
+      ),
       'source': serializer.toJson<String>(source),
       'accentHex': serializer.toJson<int>(accentHex),
       'barcode': serializer.toJson<String?>(barcode),
@@ -2466,6 +2796,10 @@ class PantryItemsTableData extends DataClass
     String? id,
     String? title,
     String? quantityLabel,
+    String? referenceUnit,
+    Value<double?> referenceUnitEquivalentQuantity = const Value.absent(),
+    Value<String?> referenceUnitEquivalentUnit = const Value.absent(),
+    Value<double?> referenceUnitWeightGrams = const Value.absent(),
     String? source,
     int? accentHex,
     Value<String?> barcode = const Value.absent(),
@@ -2482,6 +2816,16 @@ class PantryItemsTableData extends DataClass
     id: id ?? this.id,
     title: title ?? this.title,
     quantityLabel: quantityLabel ?? this.quantityLabel,
+    referenceUnit: referenceUnit ?? this.referenceUnit,
+    referenceUnitEquivalentQuantity: referenceUnitEquivalentQuantity.present
+        ? referenceUnitEquivalentQuantity.value
+        : this.referenceUnitEquivalentQuantity,
+    referenceUnitEquivalentUnit: referenceUnitEquivalentUnit.present
+        ? referenceUnitEquivalentUnit.value
+        : this.referenceUnitEquivalentUnit,
+    referenceUnitWeightGrams: referenceUnitWeightGrams.present
+        ? referenceUnitWeightGrams.value
+        : this.referenceUnitWeightGrams,
     source: source ?? this.source,
     accentHex: accentHex ?? this.accentHex,
     barcode: barcode.present ? barcode.value : this.barcode,
@@ -2502,6 +2846,19 @@ class PantryItemsTableData extends DataClass
       quantityLabel: data.quantityLabel.present
           ? data.quantityLabel.value
           : this.quantityLabel,
+      referenceUnit: data.referenceUnit.present
+          ? data.referenceUnit.value
+          : this.referenceUnit,
+      referenceUnitEquivalentQuantity:
+          data.referenceUnitEquivalentQuantity.present
+          ? data.referenceUnitEquivalentQuantity.value
+          : this.referenceUnitEquivalentQuantity,
+      referenceUnitEquivalentUnit: data.referenceUnitEquivalentUnit.present
+          ? data.referenceUnitEquivalentUnit.value
+          : this.referenceUnitEquivalentUnit,
+      referenceUnitWeightGrams: data.referenceUnitWeightGrams.present
+          ? data.referenceUnitWeightGrams.value
+          : this.referenceUnitWeightGrams,
       source: data.source.present ? data.source.value : this.source,
       accentHex: data.accentHex.present ? data.accentHex.value : this.accentHex,
       barcode: data.barcode.present ? data.barcode.value : this.barcode,
@@ -2523,6 +2880,12 @@ class PantryItemsTableData extends DataClass
           ..write('id: $id, ')
           ..write('title: $title, ')
           ..write('quantityLabel: $quantityLabel, ')
+          ..write('referenceUnit: $referenceUnit, ')
+          ..write(
+            'referenceUnitEquivalentQuantity: $referenceUnitEquivalentQuantity, ',
+          )
+          ..write('referenceUnitEquivalentUnit: $referenceUnitEquivalentUnit, ')
+          ..write('referenceUnitWeightGrams: $referenceUnitWeightGrams, ')
           ..write('source: $source, ')
           ..write('accentHex: $accentHex, ')
           ..write('barcode: $barcode, ')
@@ -2544,6 +2907,10 @@ class PantryItemsTableData extends DataClass
     id,
     title,
     quantityLabel,
+    referenceUnit,
+    referenceUnitEquivalentQuantity,
+    referenceUnitEquivalentUnit,
+    referenceUnitWeightGrams,
     source,
     accentHex,
     barcode,
@@ -2564,6 +2931,12 @@ class PantryItemsTableData extends DataClass
           other.id == this.id &&
           other.title == this.title &&
           other.quantityLabel == this.quantityLabel &&
+          other.referenceUnit == this.referenceUnit &&
+          other.referenceUnitEquivalentQuantity ==
+              this.referenceUnitEquivalentQuantity &&
+          other.referenceUnitEquivalentUnit ==
+              this.referenceUnitEquivalentUnit &&
+          other.referenceUnitWeightGrams == this.referenceUnitWeightGrams &&
           other.source == this.source &&
           other.accentHex == this.accentHex &&
           other.barcode == this.barcode &&
@@ -2582,6 +2955,10 @@ class PantryItemsTableCompanion extends UpdateCompanion<PantryItemsTableData> {
   final Value<String> id;
   final Value<String> title;
   final Value<String> quantityLabel;
+  final Value<String> referenceUnit;
+  final Value<double?> referenceUnitEquivalentQuantity;
+  final Value<String?> referenceUnitEquivalentUnit;
+  final Value<double?> referenceUnitWeightGrams;
   final Value<String> source;
   final Value<int> accentHex;
   final Value<String?> barcode;
@@ -2599,6 +2976,10 @@ class PantryItemsTableCompanion extends UpdateCompanion<PantryItemsTableData> {
     this.id = const Value.absent(),
     this.title = const Value.absent(),
     this.quantityLabel = const Value.absent(),
+    this.referenceUnit = const Value.absent(),
+    this.referenceUnitEquivalentQuantity = const Value.absent(),
+    this.referenceUnitEquivalentUnit = const Value.absent(),
+    this.referenceUnitWeightGrams = const Value.absent(),
     this.source = const Value.absent(),
     this.accentHex = const Value.absent(),
     this.barcode = const Value.absent(),
@@ -2617,6 +2998,10 @@ class PantryItemsTableCompanion extends UpdateCompanion<PantryItemsTableData> {
     required String id,
     required String title,
     required String quantityLabel,
+    this.referenceUnit = const Value.absent(),
+    this.referenceUnitEquivalentQuantity = const Value.absent(),
+    this.referenceUnitEquivalentUnit = const Value.absent(),
+    this.referenceUnitWeightGrams = const Value.absent(),
     required String source,
     required int accentHex,
     this.barcode = const Value.absent(),
@@ -2647,6 +3032,10 @@ class PantryItemsTableCompanion extends UpdateCompanion<PantryItemsTableData> {
     Expression<String>? id,
     Expression<String>? title,
     Expression<String>? quantityLabel,
+    Expression<String>? referenceUnit,
+    Expression<double>? referenceUnitEquivalentQuantity,
+    Expression<String>? referenceUnitEquivalentUnit,
+    Expression<double>? referenceUnitWeightGrams,
     Expression<String>? source,
     Expression<int>? accentHex,
     Expression<String>? barcode,
@@ -2665,6 +3054,13 @@ class PantryItemsTableCompanion extends UpdateCompanion<PantryItemsTableData> {
       if (id != null) 'id': id,
       if (title != null) 'title': title,
       if (quantityLabel != null) 'quantity_label': quantityLabel,
+      if (referenceUnit != null) 'reference_unit': referenceUnit,
+      if (referenceUnitEquivalentQuantity != null)
+        'reference_unit_equivalent_quantity': referenceUnitEquivalentQuantity,
+      if (referenceUnitEquivalentUnit != null)
+        'reference_unit_equivalent_unit': referenceUnitEquivalentUnit,
+      if (referenceUnitWeightGrams != null)
+        'reference_unit_weight_grams': referenceUnitWeightGrams,
       if (source != null) 'source': source,
       if (accentHex != null) 'accent_hex': accentHex,
       if (barcode != null) 'barcode': barcode,
@@ -2685,6 +3081,10 @@ class PantryItemsTableCompanion extends UpdateCompanion<PantryItemsTableData> {
     Value<String>? id,
     Value<String>? title,
     Value<String>? quantityLabel,
+    Value<String>? referenceUnit,
+    Value<double?>? referenceUnitEquivalentQuantity,
+    Value<String?>? referenceUnitEquivalentUnit,
+    Value<double?>? referenceUnitWeightGrams,
     Value<String>? source,
     Value<int>? accentHex,
     Value<String?>? barcode,
@@ -2703,6 +3103,14 @@ class PantryItemsTableCompanion extends UpdateCompanion<PantryItemsTableData> {
       id: id ?? this.id,
       title: title ?? this.title,
       quantityLabel: quantityLabel ?? this.quantityLabel,
+      referenceUnit: referenceUnit ?? this.referenceUnit,
+      referenceUnitEquivalentQuantity:
+          referenceUnitEquivalentQuantity ??
+          this.referenceUnitEquivalentQuantity,
+      referenceUnitEquivalentUnit:
+          referenceUnitEquivalentUnit ?? this.referenceUnitEquivalentUnit,
+      referenceUnitWeightGrams:
+          referenceUnitWeightGrams ?? this.referenceUnitWeightGrams,
       source: source ?? this.source,
       accentHex: accentHex ?? this.accentHex,
       barcode: barcode ?? this.barcode,
@@ -2730,6 +3138,24 @@ class PantryItemsTableCompanion extends UpdateCompanion<PantryItemsTableData> {
     }
     if (quantityLabel.present) {
       map['quantity_label'] = Variable<String>(quantityLabel.value);
+    }
+    if (referenceUnit.present) {
+      map['reference_unit'] = Variable<String>(referenceUnit.value);
+    }
+    if (referenceUnitEquivalentQuantity.present) {
+      map['reference_unit_equivalent_quantity'] = Variable<double>(
+        referenceUnitEquivalentQuantity.value,
+      );
+    }
+    if (referenceUnitEquivalentUnit.present) {
+      map['reference_unit_equivalent_unit'] = Variable<String>(
+        referenceUnitEquivalentUnit.value,
+      );
+    }
+    if (referenceUnitWeightGrams.present) {
+      map['reference_unit_weight_grams'] = Variable<double>(
+        referenceUnitWeightGrams.value,
+      );
     }
     if (source.present) {
       map['source'] = Variable<String>(source.value);
@@ -2779,6 +3205,12 @@ class PantryItemsTableCompanion extends UpdateCompanion<PantryItemsTableData> {
           ..write('id: $id, ')
           ..write('title: $title, ')
           ..write('quantityLabel: $quantityLabel, ')
+          ..write('referenceUnit: $referenceUnit, ')
+          ..write(
+            'referenceUnitEquivalentQuantity: $referenceUnitEquivalentQuantity, ',
+          )
+          ..write('referenceUnitEquivalentUnit: $referenceUnitEquivalentUnit, ')
+          ..write('referenceUnitWeightGrams: $referenceUnitWeightGrams, ')
           ..write('source: $source, ')
           ..write('accentHex: $accentHex, ')
           ..write('barcode: $barcode, ')
@@ -4320,6 +4752,576 @@ class SavedMealAdjustmentsCompanion
   }
 }
 
+class $SavedMealComponentsTable extends SavedMealComponents
+    with TableInfo<$SavedMealComponentsTable, SavedMealComponent> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SavedMealComponentsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _mealIdMeta = const VerificationMeta('mealId');
+  @override
+  late final GeneratedColumn<String> mealId = GeneratedColumn<String>(
+    'meal_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES saved_meals_table (id)',
+    ),
+  );
+  static const VerificationMeta _positionMeta = const VerificationMeta(
+    'position',
+  );
+  @override
+  late final GeneratedColumn<int> position = GeneratedColumn<int>(
+    'position',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _quantityMeta = const VerificationMeta(
+    'quantity',
+  );
+  @override
+  late final GeneratedColumn<String> quantity = GeneratedColumn<String>(
+    'quantity',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _unitMeta = const VerificationMeta('unit');
+  @override
+  late final GeneratedColumn<String> unit = GeneratedColumn<String>(
+    'unit',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _itemMeta = const VerificationMeta('item');
+  @override
+  late final GeneratedColumn<String> item = GeneratedColumn<String>(
+    'item',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _componentTypeMeta = const VerificationMeta(
+    'componentType',
+  );
+  @override
+  late final GeneratedColumn<String> componentType = GeneratedColumn<String>(
+    'component_type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('freeform'),
+  );
+  static const VerificationMeta _linkedPantryItemIdMeta =
+      const VerificationMeta('linkedPantryItemId');
+  @override
+  late final GeneratedColumn<String> linkedPantryItemId =
+      GeneratedColumn<String>(
+        'linked_pantry_item_id',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _linkedRecipeIdMeta = const VerificationMeta(
+    'linkedRecipeId',
+  );
+  @override
+  late final GeneratedColumn<String> linkedRecipeId = GeneratedColumn<String>(
+    'linked_recipe_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    mealId,
+    position,
+    quantity,
+    unit,
+    item,
+    componentType,
+    linkedPantryItemId,
+    linkedRecipeId,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'saved_meal_components';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SavedMealComponent> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('meal_id')) {
+      context.handle(
+        _mealIdMeta,
+        mealId.isAcceptableOrUnknown(data['meal_id']!, _mealIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_mealIdMeta);
+    }
+    if (data.containsKey('position')) {
+      context.handle(
+        _positionMeta,
+        position.isAcceptableOrUnknown(data['position']!, _positionMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_positionMeta);
+    }
+    if (data.containsKey('quantity')) {
+      context.handle(
+        _quantityMeta,
+        quantity.isAcceptableOrUnknown(data['quantity']!, _quantityMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_quantityMeta);
+    }
+    if (data.containsKey('unit')) {
+      context.handle(
+        _unitMeta,
+        unit.isAcceptableOrUnknown(data['unit']!, _unitMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_unitMeta);
+    }
+    if (data.containsKey('item')) {
+      context.handle(
+        _itemMeta,
+        item.isAcceptableOrUnknown(data['item']!, _itemMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_itemMeta);
+    }
+    if (data.containsKey('component_type')) {
+      context.handle(
+        _componentTypeMeta,
+        componentType.isAcceptableOrUnknown(
+          data['component_type']!,
+          _componentTypeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('linked_pantry_item_id')) {
+      context.handle(
+        _linkedPantryItemIdMeta,
+        linkedPantryItemId.isAcceptableOrUnknown(
+          data['linked_pantry_item_id']!,
+          _linkedPantryItemIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('linked_recipe_id')) {
+      context.handle(
+        _linkedRecipeIdMeta,
+        linkedRecipeId.isAcceptableOrUnknown(
+          data['linked_recipe_id']!,
+          _linkedRecipeIdMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  SavedMealComponent map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SavedMealComponent(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      mealId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}meal_id'],
+      )!,
+      position: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}position'],
+      )!,
+      quantity: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}quantity'],
+      )!,
+      unit: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}unit'],
+      )!,
+      item: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}item'],
+      )!,
+      componentType: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}component_type'],
+      )!,
+      linkedPantryItemId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}linked_pantry_item_id'],
+      ),
+      linkedRecipeId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}linked_recipe_id'],
+      ),
+    );
+  }
+
+  @override
+  $SavedMealComponentsTable createAlias(String alias) {
+    return $SavedMealComponentsTable(attachedDatabase, alias);
+  }
+}
+
+class SavedMealComponent extends DataClass
+    implements Insertable<SavedMealComponent> {
+  final int id;
+  final String mealId;
+  final int position;
+  final String quantity;
+  final String unit;
+  final String item;
+  final String componentType;
+  final String? linkedPantryItemId;
+  final String? linkedRecipeId;
+  const SavedMealComponent({
+    required this.id,
+    required this.mealId,
+    required this.position,
+    required this.quantity,
+    required this.unit,
+    required this.item,
+    required this.componentType,
+    this.linkedPantryItemId,
+    this.linkedRecipeId,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['meal_id'] = Variable<String>(mealId);
+    map['position'] = Variable<int>(position);
+    map['quantity'] = Variable<String>(quantity);
+    map['unit'] = Variable<String>(unit);
+    map['item'] = Variable<String>(item);
+    map['component_type'] = Variable<String>(componentType);
+    if (!nullToAbsent || linkedPantryItemId != null) {
+      map['linked_pantry_item_id'] = Variable<String>(linkedPantryItemId);
+    }
+    if (!nullToAbsent || linkedRecipeId != null) {
+      map['linked_recipe_id'] = Variable<String>(linkedRecipeId);
+    }
+    return map;
+  }
+
+  SavedMealComponentsCompanion toCompanion(bool nullToAbsent) {
+    return SavedMealComponentsCompanion(
+      id: Value(id),
+      mealId: Value(mealId),
+      position: Value(position),
+      quantity: Value(quantity),
+      unit: Value(unit),
+      item: Value(item),
+      componentType: Value(componentType),
+      linkedPantryItemId: linkedPantryItemId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(linkedPantryItemId),
+      linkedRecipeId: linkedRecipeId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(linkedRecipeId),
+    );
+  }
+
+  factory SavedMealComponent.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SavedMealComponent(
+      id: serializer.fromJson<int>(json['id']),
+      mealId: serializer.fromJson<String>(json['mealId']),
+      position: serializer.fromJson<int>(json['position']),
+      quantity: serializer.fromJson<String>(json['quantity']),
+      unit: serializer.fromJson<String>(json['unit']),
+      item: serializer.fromJson<String>(json['item']),
+      componentType: serializer.fromJson<String>(json['componentType']),
+      linkedPantryItemId: serializer.fromJson<String?>(
+        json['linkedPantryItemId'],
+      ),
+      linkedRecipeId: serializer.fromJson<String?>(json['linkedRecipeId']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'mealId': serializer.toJson<String>(mealId),
+      'position': serializer.toJson<int>(position),
+      'quantity': serializer.toJson<String>(quantity),
+      'unit': serializer.toJson<String>(unit),
+      'item': serializer.toJson<String>(item),
+      'componentType': serializer.toJson<String>(componentType),
+      'linkedPantryItemId': serializer.toJson<String?>(linkedPantryItemId),
+      'linkedRecipeId': serializer.toJson<String?>(linkedRecipeId),
+    };
+  }
+
+  SavedMealComponent copyWith({
+    int? id,
+    String? mealId,
+    int? position,
+    String? quantity,
+    String? unit,
+    String? item,
+    String? componentType,
+    Value<String?> linkedPantryItemId = const Value.absent(),
+    Value<String?> linkedRecipeId = const Value.absent(),
+  }) => SavedMealComponent(
+    id: id ?? this.id,
+    mealId: mealId ?? this.mealId,
+    position: position ?? this.position,
+    quantity: quantity ?? this.quantity,
+    unit: unit ?? this.unit,
+    item: item ?? this.item,
+    componentType: componentType ?? this.componentType,
+    linkedPantryItemId: linkedPantryItemId.present
+        ? linkedPantryItemId.value
+        : this.linkedPantryItemId,
+    linkedRecipeId: linkedRecipeId.present
+        ? linkedRecipeId.value
+        : this.linkedRecipeId,
+  );
+  SavedMealComponent copyWithCompanion(SavedMealComponentsCompanion data) {
+    return SavedMealComponent(
+      id: data.id.present ? data.id.value : this.id,
+      mealId: data.mealId.present ? data.mealId.value : this.mealId,
+      position: data.position.present ? data.position.value : this.position,
+      quantity: data.quantity.present ? data.quantity.value : this.quantity,
+      unit: data.unit.present ? data.unit.value : this.unit,
+      item: data.item.present ? data.item.value : this.item,
+      componentType: data.componentType.present
+          ? data.componentType.value
+          : this.componentType,
+      linkedPantryItemId: data.linkedPantryItemId.present
+          ? data.linkedPantryItemId.value
+          : this.linkedPantryItemId,
+      linkedRecipeId: data.linkedRecipeId.present
+          ? data.linkedRecipeId.value
+          : this.linkedRecipeId,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SavedMealComponent(')
+          ..write('id: $id, ')
+          ..write('mealId: $mealId, ')
+          ..write('position: $position, ')
+          ..write('quantity: $quantity, ')
+          ..write('unit: $unit, ')
+          ..write('item: $item, ')
+          ..write('componentType: $componentType, ')
+          ..write('linkedPantryItemId: $linkedPantryItemId, ')
+          ..write('linkedRecipeId: $linkedRecipeId')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    mealId,
+    position,
+    quantity,
+    unit,
+    item,
+    componentType,
+    linkedPantryItemId,
+    linkedRecipeId,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SavedMealComponent &&
+          other.id == this.id &&
+          other.mealId == this.mealId &&
+          other.position == this.position &&
+          other.quantity == this.quantity &&
+          other.unit == this.unit &&
+          other.item == this.item &&
+          other.componentType == this.componentType &&
+          other.linkedPantryItemId == this.linkedPantryItemId &&
+          other.linkedRecipeId == this.linkedRecipeId);
+}
+
+class SavedMealComponentsCompanion extends UpdateCompanion<SavedMealComponent> {
+  final Value<int> id;
+  final Value<String> mealId;
+  final Value<int> position;
+  final Value<String> quantity;
+  final Value<String> unit;
+  final Value<String> item;
+  final Value<String> componentType;
+  final Value<String?> linkedPantryItemId;
+  final Value<String?> linkedRecipeId;
+  const SavedMealComponentsCompanion({
+    this.id = const Value.absent(),
+    this.mealId = const Value.absent(),
+    this.position = const Value.absent(),
+    this.quantity = const Value.absent(),
+    this.unit = const Value.absent(),
+    this.item = const Value.absent(),
+    this.componentType = const Value.absent(),
+    this.linkedPantryItemId = const Value.absent(),
+    this.linkedRecipeId = const Value.absent(),
+  });
+  SavedMealComponentsCompanion.insert({
+    this.id = const Value.absent(),
+    required String mealId,
+    required int position,
+    required String quantity,
+    required String unit,
+    required String item,
+    this.componentType = const Value.absent(),
+    this.linkedPantryItemId = const Value.absent(),
+    this.linkedRecipeId = const Value.absent(),
+  }) : mealId = Value(mealId),
+       position = Value(position),
+       quantity = Value(quantity),
+       unit = Value(unit),
+       item = Value(item);
+  static Insertable<SavedMealComponent> custom({
+    Expression<int>? id,
+    Expression<String>? mealId,
+    Expression<int>? position,
+    Expression<String>? quantity,
+    Expression<String>? unit,
+    Expression<String>? item,
+    Expression<String>? componentType,
+    Expression<String>? linkedPantryItemId,
+    Expression<String>? linkedRecipeId,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (mealId != null) 'meal_id': mealId,
+      if (position != null) 'position': position,
+      if (quantity != null) 'quantity': quantity,
+      if (unit != null) 'unit': unit,
+      if (item != null) 'item': item,
+      if (componentType != null) 'component_type': componentType,
+      if (linkedPantryItemId != null)
+        'linked_pantry_item_id': linkedPantryItemId,
+      if (linkedRecipeId != null) 'linked_recipe_id': linkedRecipeId,
+    });
+  }
+
+  SavedMealComponentsCompanion copyWith({
+    Value<int>? id,
+    Value<String>? mealId,
+    Value<int>? position,
+    Value<String>? quantity,
+    Value<String>? unit,
+    Value<String>? item,
+    Value<String>? componentType,
+    Value<String?>? linkedPantryItemId,
+    Value<String?>? linkedRecipeId,
+  }) {
+    return SavedMealComponentsCompanion(
+      id: id ?? this.id,
+      mealId: mealId ?? this.mealId,
+      position: position ?? this.position,
+      quantity: quantity ?? this.quantity,
+      unit: unit ?? this.unit,
+      item: item ?? this.item,
+      componentType: componentType ?? this.componentType,
+      linkedPantryItemId: linkedPantryItemId ?? this.linkedPantryItemId,
+      linkedRecipeId: linkedRecipeId ?? this.linkedRecipeId,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (mealId.present) {
+      map['meal_id'] = Variable<String>(mealId.value);
+    }
+    if (position.present) {
+      map['position'] = Variable<int>(position.value);
+    }
+    if (quantity.present) {
+      map['quantity'] = Variable<String>(quantity.value);
+    }
+    if (unit.present) {
+      map['unit'] = Variable<String>(unit.value);
+    }
+    if (item.present) {
+      map['item'] = Variable<String>(item.value);
+    }
+    if (componentType.present) {
+      map['component_type'] = Variable<String>(componentType.value);
+    }
+    if (linkedPantryItemId.present) {
+      map['linked_pantry_item_id'] = Variable<String>(linkedPantryItemId.value);
+    }
+    if (linkedRecipeId.present) {
+      map['linked_recipe_id'] = Variable<String>(linkedRecipeId.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SavedMealComponentsCompanion(')
+          ..write('id: $id, ')
+          ..write('mealId: $mealId, ')
+          ..write('position: $position, ')
+          ..write('quantity: $quantity, ')
+          ..write('unit: $unit, ')
+          ..write('item: $item, ')
+          ..write('componentType: $componentType, ')
+          ..write('linkedPantryItemId: $linkedPantryItemId, ')
+          ..write('linkedRecipeId: $linkedRecipeId')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $DailyGoalsTableTable extends DailyGoalsTable
     with TableInfo<$DailyGoalsTableTable, DailyGoalsTableData> {
   @override
@@ -4640,6 +5642,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   );
   late final $SavedMealAdjustmentsTable savedMealAdjustments =
       $SavedMealAdjustmentsTable(this);
+  late final $SavedMealComponentsTable savedMealComponents =
+      $SavedMealComponentsTable(this);
   late final $DailyGoalsTableTable dailyGoalsTable = $DailyGoalsTableTable(
     this,
   );
@@ -4657,6 +5661,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     groceryItemsTable,
     savedMealsTable,
     savedMealAdjustments,
+    savedMealComponents,
     dailyGoalsTable,
   ];
 }
@@ -5685,6 +6690,9 @@ typedef $$RecipeIngredientsTableCreateCompanionBuilder =
       required String unit,
       required String item,
       required String preparation,
+      Value<String> ingredientType,
+      Value<String?> linkedPantryItemId,
+      Value<String?> linkedRecipeId,
     });
 typedef $$RecipeIngredientsTableUpdateCompanionBuilder =
     RecipeIngredientsCompanion Function({
@@ -5695,6 +6703,9 @@ typedef $$RecipeIngredientsTableUpdateCompanionBuilder =
       Value<String> unit,
       Value<String> item,
       Value<String> preparation,
+      Value<String> ingredientType,
+      Value<String?> linkedPantryItemId,
+      Value<String?> linkedRecipeId,
     });
 
 final class $$RecipeIngredientsTableReferences
@@ -5769,6 +6780,21 @@ class $$RecipeIngredientsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<String> get ingredientType => $composableBuilder(
+    column: $table.ingredientType,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get linkedPantryItemId => $composableBuilder(
+    column: $table.linkedPantryItemId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get linkedRecipeId => $composableBuilder(
+    column: $table.linkedRecipeId,
+    builder: (column) => ColumnFilters(column),
+  );
+
   $$RecipesTableFilterComposer get recipeId {
     final $$RecipesTableFilterComposer composer = $composerBuilder(
       composer: this,
@@ -5832,6 +6858,21 @@ class $$RecipeIngredientsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get ingredientType => $composableBuilder(
+    column: $table.ingredientType,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get linkedPantryItemId => $composableBuilder(
+    column: $table.linkedPantryItemId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get linkedRecipeId => $composableBuilder(
+    column: $table.linkedRecipeId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$RecipesTableOrderingComposer get recipeId {
     final $$RecipesTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -5882,6 +6923,21 @@ class $$RecipeIngredientsTableAnnotationComposer
 
   GeneratedColumn<String> get preparation => $composableBuilder(
     column: $table.preparation,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get ingredientType => $composableBuilder(
+    column: $table.ingredientType,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get linkedPantryItemId => $composableBuilder(
+    column: $table.linkedPantryItemId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get linkedRecipeId => $composableBuilder(
+    column: $table.linkedRecipeId,
     builder: (column) => column,
   );
 
@@ -5949,6 +7005,9 @@ class $$RecipeIngredientsTableTableManager
                 Value<String> unit = const Value.absent(),
                 Value<String> item = const Value.absent(),
                 Value<String> preparation = const Value.absent(),
+                Value<String> ingredientType = const Value.absent(),
+                Value<String?> linkedPantryItemId = const Value.absent(),
+                Value<String?> linkedRecipeId = const Value.absent(),
               }) => RecipeIngredientsCompanion(
                 id: id,
                 recipeId: recipeId,
@@ -5957,6 +7016,9 @@ class $$RecipeIngredientsTableTableManager
                 unit: unit,
                 item: item,
                 preparation: preparation,
+                ingredientType: ingredientType,
+                linkedPantryItemId: linkedPantryItemId,
+                linkedRecipeId: linkedRecipeId,
               ),
           createCompanionCallback:
               ({
@@ -5967,6 +7029,9 @@ class $$RecipeIngredientsTableTableManager
                 required String unit,
                 required String item,
                 required String preparation,
+                Value<String> ingredientType = const Value.absent(),
+                Value<String?> linkedPantryItemId = const Value.absent(),
+                Value<String?> linkedRecipeId = const Value.absent(),
               }) => RecipeIngredientsCompanion.insert(
                 id: id,
                 recipeId: recipeId,
@@ -5975,6 +7040,9 @@ class $$RecipeIngredientsTableTableManager
                 unit: unit,
                 item: item,
                 preparation: preparation,
+                ingredientType: ingredientType,
+                linkedPantryItemId: linkedPantryItemId,
+                linkedRecipeId: linkedRecipeId,
               ),
           withReferenceMapper: (p0) => p0
               .map(
@@ -6355,6 +7423,10 @@ typedef $$PantryItemsTableTableCreateCompanionBuilder =
       required String id,
       required String title,
       required String quantityLabel,
+      Value<String> referenceUnit,
+      Value<double?> referenceUnitEquivalentQuantity,
+      Value<String?> referenceUnitEquivalentUnit,
+      Value<double?> referenceUnitWeightGrams,
       required String source,
       required int accentHex,
       Value<String?> barcode,
@@ -6374,6 +7446,10 @@ typedef $$PantryItemsTableTableUpdateCompanionBuilder =
       Value<String> id,
       Value<String> title,
       Value<String> quantityLabel,
+      Value<String> referenceUnit,
+      Value<double?> referenceUnitEquivalentQuantity,
+      Value<String?> referenceUnitEquivalentUnit,
+      Value<double?> referenceUnitWeightGrams,
       Value<String> source,
       Value<int> accentHex,
       Value<String?> barcode,
@@ -6410,6 +7486,27 @@ class $$PantryItemsTableTableFilterComposer
 
   ColumnFilters<String> get quantityLabel => $composableBuilder(
     column: $table.quantityLabel,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get referenceUnit => $composableBuilder(
+    column: $table.referenceUnit,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get referenceUnitEquivalentQuantity =>
+      $composableBuilder(
+        column: $table.referenceUnitEquivalentQuantity,
+        builder: (column) => ColumnFilters(column),
+      );
+
+  ColumnFilters<String> get referenceUnitEquivalentUnit => $composableBuilder(
+    column: $table.referenceUnitEquivalentUnit,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get referenceUnitWeightGrams => $composableBuilder(
+    column: $table.referenceUnitWeightGrams,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -6498,6 +7595,27 @@ class $$PantryItemsTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get referenceUnit => $composableBuilder(
+    column: $table.referenceUnit,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get referenceUnitEquivalentQuantity =>
+      $composableBuilder(
+        column: $table.referenceUnitEquivalentQuantity,
+        builder: (column) => ColumnOrderings(column),
+      );
+
+  ColumnOrderings<String> get referenceUnitEquivalentUnit => $composableBuilder(
+    column: $table.referenceUnitEquivalentUnit,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get referenceUnitWeightGrams => $composableBuilder(
+    column: $table.referenceUnitWeightGrams,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get source => $composableBuilder(
     column: $table.source,
     builder: (column) => ColumnOrderings(column),
@@ -6579,6 +7697,27 @@ class $$PantryItemsTableTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get referenceUnit => $composableBuilder(
+    column: $table.referenceUnit,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<double> get referenceUnitEquivalentQuantity =>
+      $composableBuilder(
+        column: $table.referenceUnitEquivalentQuantity,
+        builder: (column) => column,
+      );
+
+  GeneratedColumn<String> get referenceUnitEquivalentUnit => $composableBuilder(
+    column: $table.referenceUnitEquivalentUnit,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<double> get referenceUnitWeightGrams => $composableBuilder(
+    column: $table.referenceUnitWeightGrams,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get source =>
       $composableBuilder(column: $table.source, builder: (column) => column);
 
@@ -6656,6 +7795,12 @@ class $$PantryItemsTableTableTableManager
                 Value<String> id = const Value.absent(),
                 Value<String> title = const Value.absent(),
                 Value<String> quantityLabel = const Value.absent(),
+                Value<String> referenceUnit = const Value.absent(),
+                Value<double?> referenceUnitEquivalentQuantity =
+                    const Value.absent(),
+                Value<String?> referenceUnitEquivalentUnit =
+                    const Value.absent(),
+                Value<double?> referenceUnitWeightGrams = const Value.absent(),
                 Value<String> source = const Value.absent(),
                 Value<int> accentHex = const Value.absent(),
                 Value<String?> barcode = const Value.absent(),
@@ -6673,6 +7818,11 @@ class $$PantryItemsTableTableTableManager
                 id: id,
                 title: title,
                 quantityLabel: quantityLabel,
+                referenceUnit: referenceUnit,
+                referenceUnitEquivalentQuantity:
+                    referenceUnitEquivalentQuantity,
+                referenceUnitEquivalentUnit: referenceUnitEquivalentUnit,
+                referenceUnitWeightGrams: referenceUnitWeightGrams,
                 source: source,
                 accentHex: accentHex,
                 barcode: barcode,
@@ -6692,6 +7842,12 @@ class $$PantryItemsTableTableTableManager
                 required String id,
                 required String title,
                 required String quantityLabel,
+                Value<String> referenceUnit = const Value.absent(),
+                Value<double?> referenceUnitEquivalentQuantity =
+                    const Value.absent(),
+                Value<String?> referenceUnitEquivalentUnit =
+                    const Value.absent(),
+                Value<double?> referenceUnitWeightGrams = const Value.absent(),
                 required String source,
                 required int accentHex,
                 Value<String?> barcode = const Value.absent(),
@@ -6709,6 +7865,11 @@ class $$PantryItemsTableTableTableManager
                 id: id,
                 title: title,
                 quantityLabel: quantityLabel,
+                referenceUnit: referenceUnit,
+                referenceUnitEquivalentQuantity:
+                    referenceUnitEquivalentQuantity,
+                referenceUnitEquivalentUnit: referenceUnitEquivalentUnit,
+                referenceUnitWeightGrams: referenceUnitWeightGrams,
                 source: source,
                 accentHex: accentHex,
                 barcode: barcode,
@@ -7447,6 +8608,33 @@ final class $$SavedMealsTableTableReferences
       manager.$state.copyWith(prefetchedData: cache),
     );
   }
+
+  static MultiTypedResultKey<
+    $SavedMealComponentsTable,
+    List<SavedMealComponent>
+  >
+  _savedMealComponentsRefsTable(_$AppDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.savedMealComponents,
+        aliasName: $_aliasNameGenerator(
+          db.savedMealsTable.id,
+          db.savedMealComponents.mealId,
+        ),
+      );
+
+  $$SavedMealComponentsTableProcessedTableManager get savedMealComponentsRefs {
+    final manager = $$SavedMealComponentsTableTableManager(
+      $_db,
+      $_db.savedMealComponents,
+    ).filter((f) => f.mealId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _savedMealComponentsRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
 }
 
 class $$SavedMealsTableTableFilterComposer
@@ -7524,6 +8712,31 @@ class $$SavedMealsTableTableFilterComposer
           }) => $$SavedMealAdjustmentsTableFilterComposer(
             $db: $db,
             $table: $db.savedMealAdjustments,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> savedMealComponentsRefs(
+    Expression<bool> Function($$SavedMealComponentsTableFilterComposer f) f,
+  ) {
+    final $$SavedMealComponentsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.savedMealComponents,
+      getReferencedColumn: (t) => t.mealId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$SavedMealComponentsTableFilterComposer(
+            $db: $db,
+            $table: $db.savedMealComponents,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -7658,6 +8871,32 @@ class $$SavedMealsTableTableAnnotationComposer
         );
     return f(composer);
   }
+
+  Expression<T> savedMealComponentsRefs<T extends Object>(
+    Expression<T> Function($$SavedMealComponentsTableAnnotationComposer a) f,
+  ) {
+    final $$SavedMealComponentsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.savedMealComponents,
+          getReferencedColumn: (t) => t.mealId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$SavedMealComponentsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.savedMealComponents,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
 }
 
 class $$SavedMealsTableTableTableManager
@@ -7673,7 +8912,10 @@ class $$SavedMealsTableTableTableManager
           $$SavedMealsTableTableUpdateCompanionBuilder,
           (SavedMealsTableData, $$SavedMealsTableTableReferences),
           SavedMealsTableData,
-          PrefetchHooks Function({bool savedMealAdjustmentsRefs})
+          PrefetchHooks Function({
+            bool savedMealAdjustmentsRefs,
+            bool savedMealComponentsRefs,
+          })
         > {
   $$SavedMealsTableTableTableManager(
     _$AppDatabase db,
@@ -7748,38 +8990,66 @@ class $$SavedMealsTableTableTableManager
                 ),
               )
               .toList(),
-          prefetchHooksCallback: ({savedMealAdjustmentsRefs = false}) {
-            return PrefetchHooks(
-              db: db,
-              explicitlyWatchedTables: [
-                if (savedMealAdjustmentsRefs) db.savedMealAdjustments,
-              ],
-              addJoins: null,
-              getPrefetchedDataCallback: (items) async {
-                return [
-                  if (savedMealAdjustmentsRefs)
-                    await $_getPrefetchedData<
-                      SavedMealsTableData,
-                      $SavedMealsTableTable,
-                      SavedMealAdjustment
-                    >(
-                      currentTable: table,
-                      referencedTable: $$SavedMealsTableTableReferences
-                          ._savedMealAdjustmentsRefsTable(db),
-                      managerFromTypedResult: (p0) =>
-                          $$SavedMealsTableTableReferences(
-                            db,
-                            table,
-                            p0,
-                          ).savedMealAdjustmentsRefs,
-                      referencedItemsForCurrentItem: (item, referencedItems) =>
-                          referencedItems.where((e) => e.mealId == item.id),
-                      typedResults: items,
-                    ),
-                ];
+          prefetchHooksCallback:
+              ({
+                savedMealAdjustmentsRefs = false,
+                savedMealComponentsRefs = false,
+              }) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [
+                    if (savedMealAdjustmentsRefs) db.savedMealAdjustments,
+                    if (savedMealComponentsRefs) db.savedMealComponents,
+                  ],
+                  addJoins: null,
+                  getPrefetchedDataCallback: (items) async {
+                    return [
+                      if (savedMealAdjustmentsRefs)
+                        await $_getPrefetchedData<
+                          SavedMealsTableData,
+                          $SavedMealsTableTable,
+                          SavedMealAdjustment
+                        >(
+                          currentTable: table,
+                          referencedTable: $$SavedMealsTableTableReferences
+                              ._savedMealAdjustmentsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$SavedMealsTableTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).savedMealAdjustmentsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.mealId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (savedMealComponentsRefs)
+                        await $_getPrefetchedData<
+                          SavedMealsTableData,
+                          $SavedMealsTableTable,
+                          SavedMealComponent
+                        >(
+                          currentTable: table,
+                          referencedTable: $$SavedMealsTableTableReferences
+                              ._savedMealComponentsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$SavedMealsTableTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).savedMealComponentsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.mealId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                    ];
+                  },
+                );
               },
-            );
-          },
         ),
       );
 }
@@ -7796,7 +9066,10 @@ typedef $$SavedMealsTableTableProcessedTableManager =
       $$SavedMealsTableTableUpdateCompanionBuilder,
       (SavedMealsTableData, $$SavedMealsTableTableReferences),
       SavedMealsTableData,
-      PrefetchHooks Function({bool savedMealAdjustmentsRefs})
+      PrefetchHooks Function({
+        bool savedMealAdjustmentsRefs,
+        bool savedMealComponentsRefs,
+      })
     >;
 typedef $$SavedMealAdjustmentsTableCreateCompanionBuilder =
     SavedMealAdjustmentsCompanion Function({
@@ -8114,6 +9387,423 @@ typedef $$SavedMealAdjustmentsTableProcessedTableManager =
       SavedMealAdjustment,
       PrefetchHooks Function({bool mealId})
     >;
+typedef $$SavedMealComponentsTableCreateCompanionBuilder =
+    SavedMealComponentsCompanion Function({
+      Value<int> id,
+      required String mealId,
+      required int position,
+      required String quantity,
+      required String unit,
+      required String item,
+      Value<String> componentType,
+      Value<String?> linkedPantryItemId,
+      Value<String?> linkedRecipeId,
+    });
+typedef $$SavedMealComponentsTableUpdateCompanionBuilder =
+    SavedMealComponentsCompanion Function({
+      Value<int> id,
+      Value<String> mealId,
+      Value<int> position,
+      Value<String> quantity,
+      Value<String> unit,
+      Value<String> item,
+      Value<String> componentType,
+      Value<String?> linkedPantryItemId,
+      Value<String?> linkedRecipeId,
+    });
+
+final class $$SavedMealComponentsTableReferences
+    extends
+        BaseReferences<
+          _$AppDatabase,
+          $SavedMealComponentsTable,
+          SavedMealComponent
+        > {
+  $$SavedMealComponentsTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $SavedMealsTableTable _mealIdTable(_$AppDatabase db) =>
+      db.savedMealsTable.createAlias(
+        $_aliasNameGenerator(
+          db.savedMealComponents.mealId,
+          db.savedMealsTable.id,
+        ),
+      );
+
+  $$SavedMealsTableTableProcessedTableManager get mealId {
+    final $_column = $_itemColumn<String>('meal_id')!;
+
+    final manager = $$SavedMealsTableTableTableManager(
+      $_db,
+      $_db.savedMealsTable,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_mealIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$SavedMealComponentsTableFilterComposer
+    extends Composer<_$AppDatabase, $SavedMealComponentsTable> {
+  $$SavedMealComponentsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get position => $composableBuilder(
+    column: $table.position,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get quantity => $composableBuilder(
+    column: $table.quantity,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get unit => $composableBuilder(
+    column: $table.unit,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get item => $composableBuilder(
+    column: $table.item,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get componentType => $composableBuilder(
+    column: $table.componentType,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get linkedPantryItemId => $composableBuilder(
+    column: $table.linkedPantryItemId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get linkedRecipeId => $composableBuilder(
+    column: $table.linkedRecipeId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$SavedMealsTableTableFilterComposer get mealId {
+    final $$SavedMealsTableTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.mealId,
+      referencedTable: $db.savedMealsTable,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$SavedMealsTableTableFilterComposer(
+            $db: $db,
+            $table: $db.savedMealsTable,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$SavedMealComponentsTableOrderingComposer
+    extends Composer<_$AppDatabase, $SavedMealComponentsTable> {
+  $$SavedMealComponentsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get position => $composableBuilder(
+    column: $table.position,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get quantity => $composableBuilder(
+    column: $table.quantity,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get unit => $composableBuilder(
+    column: $table.unit,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get item => $composableBuilder(
+    column: $table.item,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get componentType => $composableBuilder(
+    column: $table.componentType,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get linkedPantryItemId => $composableBuilder(
+    column: $table.linkedPantryItemId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get linkedRecipeId => $composableBuilder(
+    column: $table.linkedRecipeId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$SavedMealsTableTableOrderingComposer get mealId {
+    final $$SavedMealsTableTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.mealId,
+      referencedTable: $db.savedMealsTable,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$SavedMealsTableTableOrderingComposer(
+            $db: $db,
+            $table: $db.savedMealsTable,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$SavedMealComponentsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SavedMealComponentsTable> {
+  $$SavedMealComponentsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<int> get position =>
+      $composableBuilder(column: $table.position, builder: (column) => column);
+
+  GeneratedColumn<String> get quantity =>
+      $composableBuilder(column: $table.quantity, builder: (column) => column);
+
+  GeneratedColumn<String> get unit =>
+      $composableBuilder(column: $table.unit, builder: (column) => column);
+
+  GeneratedColumn<String> get item =>
+      $composableBuilder(column: $table.item, builder: (column) => column);
+
+  GeneratedColumn<String> get componentType => $composableBuilder(
+    column: $table.componentType,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get linkedPantryItemId => $composableBuilder(
+    column: $table.linkedPantryItemId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get linkedRecipeId => $composableBuilder(
+    column: $table.linkedRecipeId,
+    builder: (column) => column,
+  );
+
+  $$SavedMealsTableTableAnnotationComposer get mealId {
+    final $$SavedMealsTableTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.mealId,
+      referencedTable: $db.savedMealsTable,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$SavedMealsTableTableAnnotationComposer(
+            $db: $db,
+            $table: $db.savedMealsTable,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$SavedMealComponentsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $SavedMealComponentsTable,
+          SavedMealComponent,
+          $$SavedMealComponentsTableFilterComposer,
+          $$SavedMealComponentsTableOrderingComposer,
+          $$SavedMealComponentsTableAnnotationComposer,
+          $$SavedMealComponentsTableCreateCompanionBuilder,
+          $$SavedMealComponentsTableUpdateCompanionBuilder,
+          (SavedMealComponent, $$SavedMealComponentsTableReferences),
+          SavedMealComponent,
+          PrefetchHooks Function({bool mealId})
+        > {
+  $$SavedMealComponentsTableTableManager(
+    _$AppDatabase db,
+    $SavedMealComponentsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SavedMealComponentsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SavedMealComponentsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$SavedMealComponentsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String> mealId = const Value.absent(),
+                Value<int> position = const Value.absent(),
+                Value<String> quantity = const Value.absent(),
+                Value<String> unit = const Value.absent(),
+                Value<String> item = const Value.absent(),
+                Value<String> componentType = const Value.absent(),
+                Value<String?> linkedPantryItemId = const Value.absent(),
+                Value<String?> linkedRecipeId = const Value.absent(),
+              }) => SavedMealComponentsCompanion(
+                id: id,
+                mealId: mealId,
+                position: position,
+                quantity: quantity,
+                unit: unit,
+                item: item,
+                componentType: componentType,
+                linkedPantryItemId: linkedPantryItemId,
+                linkedRecipeId: linkedRecipeId,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required String mealId,
+                required int position,
+                required String quantity,
+                required String unit,
+                required String item,
+                Value<String> componentType = const Value.absent(),
+                Value<String?> linkedPantryItemId = const Value.absent(),
+                Value<String?> linkedRecipeId = const Value.absent(),
+              }) => SavedMealComponentsCompanion.insert(
+                id: id,
+                mealId: mealId,
+                position: position,
+                quantity: quantity,
+                unit: unit,
+                item: item,
+                componentType: componentType,
+                linkedPantryItemId: linkedPantryItemId,
+                linkedRecipeId: linkedRecipeId,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$SavedMealComponentsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({mealId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (mealId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.mealId,
+                                referencedTable:
+                                    $$SavedMealComponentsTableReferences
+                                        ._mealIdTable(db),
+                                referencedColumn:
+                                    $$SavedMealComponentsTableReferences
+                                        ._mealIdTable(db)
+                                        .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$SavedMealComponentsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $SavedMealComponentsTable,
+      SavedMealComponent,
+      $$SavedMealComponentsTableFilterComposer,
+      $$SavedMealComponentsTableOrderingComposer,
+      $$SavedMealComponentsTableAnnotationComposer,
+      $$SavedMealComponentsTableCreateCompanionBuilder,
+      $$SavedMealComponentsTableUpdateCompanionBuilder,
+      (SavedMealComponent, $$SavedMealComponentsTableReferences),
+      SavedMealComponent,
+      PrefetchHooks Function({bool mealId})
+    >;
 typedef $$DailyGoalsTableTableCreateCompanionBuilder =
     DailyGoalsTableCompanion Function({
       Value<int> id,
@@ -8321,6 +10011,8 @@ class $AppDatabaseManager {
       $$SavedMealsTableTableTableManager(_db, _db.savedMealsTable);
   $$SavedMealAdjustmentsTableTableManager get savedMealAdjustments =>
       $$SavedMealAdjustmentsTableTableManager(_db, _db.savedMealAdjustments);
+  $$SavedMealComponentsTableTableManager get savedMealComponents =>
+      $$SavedMealComponentsTableTableManager(_db, _db.savedMealComponents);
   $$DailyGoalsTableTableTableManager get dailyGoalsTable =>
       $$DailyGoalsTableTableTableManager(_db, _db.dailyGoalsTable);
 }

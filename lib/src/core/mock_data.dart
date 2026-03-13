@@ -11,6 +11,16 @@ class NutritionSnapshot {
     required this.sugar,
   });
 
+  static const zero = NutritionSnapshot(
+    calories: 0,
+    protein: 0,
+    carbs: 0,
+    fat: 0,
+    fiber: 0,
+    sodium: 0,
+    sugar: 0,
+  );
+
   final int calories;
   final int protein;
   final int carbs;
@@ -38,6 +48,59 @@ class NutritionSnapshot {
       sugar: sugar ?? this.sugar,
     );
   }
+
+  NutritionSnapshot operator +(NutritionSnapshot other) {
+    return NutritionSnapshot(
+      calories: calories + other.calories,
+      protein: protein + other.protein,
+      carbs: carbs + other.carbs,
+      fat: fat + other.fat,
+      fiber: fiber + other.fiber,
+      sodium: sodium + other.sodium,
+      sugar: sugar + other.sugar,
+    );
+  }
+
+  NutritionSnapshot scale(double factor) {
+    int scaleValue(int value) => (value * factor).round();
+
+    return NutritionSnapshot(
+      calories: scaleValue(calories),
+      protein: scaleValue(protein),
+      carbs: scaleValue(carbs),
+      fat: scaleValue(fat),
+      fiber: scaleValue(fiber),
+      sodium: scaleValue(sodium),
+      sugar: scaleValue(sugar),
+    );
+  }
+
+  NutritionSnapshot divide(int divisor) {
+    if (divisor <= 0) {
+      return this;
+    }
+
+    int divideValue(int value) => (value / divisor).round();
+
+    return NutritionSnapshot(
+      calories: divideValue(calories),
+      protein: divideValue(protein),
+      carbs: divideValue(carbs),
+      fat: divideValue(fat),
+      fiber: divideValue(fiber),
+      sodium: divideValue(sodium),
+      sugar: divideValue(sugar),
+    );
+  }
+
+  bool get isZero =>
+      calories == 0 &&
+      protein == 0 &&
+      carbs == 0 &&
+      fat == 0 &&
+      fiber == 0 &&
+      sodium == 0 &&
+      sugar == 0;
 }
 
 enum RecipeSortOrder { caloriesLowToHigh, caloriesHighToLow }
@@ -70,32 +133,90 @@ class RecipeSummary {
   final int directionCount;
 }
 
+enum RecipeIngredientType { freeform, pantryItem, recipeReference }
+
 class RecipeIngredientDraft {
   const RecipeIngredientDraft({
     required this.quantity,
     required this.unit,
     required this.item,
     required this.preparation,
+    this.linkType = RecipeIngredientType.freeform,
+    this.linkedPantryItemId,
+    this.linkedRecipeId,
   });
 
   final String quantity;
   final String unit;
   final String item;
   final String preparation;
+  final RecipeIngredientType linkType;
+  final String? linkedPantryItemId;
+  final String? linkedRecipeId;
+
+  String? get linkedTargetId => switch (linkType) {
+    RecipeIngredientType.freeform => null,
+    RecipeIngredientType.pantryItem => linkedPantryItemId,
+    RecipeIngredientType.recipeReference => linkedRecipeId,
+  };
 
   RecipeIngredientDraft copyWith({
     String? quantity,
     String? unit,
     String? item,
     String? preparation,
+    RecipeIngredientType? linkType,
+    String? linkedPantryItemId,
+    String? linkedRecipeId,
   }) {
     return RecipeIngredientDraft(
       quantity: quantity ?? this.quantity,
       unit: unit ?? this.unit,
       item: item ?? this.item,
       preparation: preparation ?? this.preparation,
+      linkType: linkType ?? this.linkType,
+      linkedPantryItemId: linkedPantryItemId ?? this.linkedPantryItemId,
+      linkedRecipeId: linkedRecipeId ?? this.linkedRecipeId,
     );
   }
+}
+
+class IngredientLinkTarget {
+  const IngredientLinkTarget({
+    required this.id,
+    required this.type,
+    required this.title,
+    required this.referenceUnit,
+    required this.nutrition,
+    this.referenceUnitEquivalentQuantity,
+    this.referenceUnitEquivalentUnit,
+    this.referenceUnitWeightGrams,
+    this.subtitle = '',
+  });
+
+  final String id;
+  final RecipeIngredientType type;
+  final String title;
+  final String referenceUnit;
+  final NutritionSnapshot nutrition;
+  final double? referenceUnitEquivalentQuantity;
+  final String? referenceUnitEquivalentUnit;
+  final double? referenceUnitWeightGrams;
+  final String subtitle;
+}
+
+class ResolvedRecipeIngredient {
+  const ResolvedRecipeIngredient({
+    required this.draft,
+    required this.linkTitle,
+    required this.linkSubtitle,
+    required this.batchNutrition,
+  });
+
+  final RecipeIngredientDraft draft;
+  final String? linkTitle;
+  final String linkSubtitle;
+  final NutritionSnapshot batchNutrition;
 }
 
 class RecipeDraft {
@@ -148,37 +269,269 @@ class RecipeDraft {
 
 class PantryItem {
   const PantryItem({
+    required this.id,
     required this.name,
     required this.quantityLabel,
+    required this.referenceUnit,
     required this.source,
     required this.nutrition,
     required this.accent,
+    this.referenceUnitEquivalentQuantity,
+    this.referenceUnitEquivalentUnit,
+    this.referenceUnitWeightGrams,
+  });
+
+  final String id;
+  final String name;
+  final String quantityLabel;
+  final String referenceUnit;
+  final String source;
+  final NutritionSnapshot nutrition;
+  final Color accent;
+  final double? referenceUnitEquivalentQuantity;
+  final String? referenceUnitEquivalentUnit;
+  final double? referenceUnitWeightGrams;
+
+  PantryItemDraft toDraft() {
+    return PantryItemDraft(
+      name: name,
+      quantityLabel: quantityLabel,
+      referenceUnit: referenceUnit,
+      source: source,
+      nutrition: nutrition,
+      accent: accent,
+      referenceUnitEquivalentQuantity: referenceUnitEquivalentQuantity,
+      referenceUnitEquivalentUnit: referenceUnitEquivalentUnit,
+      referenceUnitWeightGrams: referenceUnitWeightGrams,
+    );
+  }
+}
+
+class PantryItemDraft {
+  const PantryItemDraft({
+    required this.name,
+    required this.quantityLabel,
+    required this.referenceUnit,
+    required this.source,
+    required this.nutrition,
+    required this.accent,
+    this.referenceUnitEquivalentQuantity,
+    this.referenceUnitEquivalentUnit,
+    this.referenceUnitWeightGrams,
   });
 
   final String name;
   final String quantityLabel;
+  final String referenceUnit;
   final String source;
   final NutritionSnapshot nutrition;
   final Color accent;
+  final double? referenceUnitEquivalentQuantity;
+  final String? referenceUnitEquivalentUnit;
+  final double? referenceUnitWeightGrams;
+
+  PantryItemDraft copyWith({
+    String? name,
+    String? quantityLabel,
+    String? referenceUnit,
+    String? source,
+    NutritionSnapshot? nutrition,
+    Color? accent,
+    double? referenceUnitEquivalentQuantity,
+    String? referenceUnitEquivalentUnit,
+    double? referenceUnitWeightGrams,
+  }) {
+    return PantryItemDraft(
+      name: name ?? this.name,
+      quantityLabel: quantityLabel ?? this.quantityLabel,
+      referenceUnit: referenceUnit ?? this.referenceUnit,
+      source: source ?? this.source,
+      nutrition: nutrition ?? this.nutrition,
+      accent: accent ?? this.accent,
+      referenceUnitEquivalentQuantity:
+          referenceUnitEquivalentQuantity ??
+          this.referenceUnitEquivalentQuantity,
+      referenceUnitEquivalentUnit:
+          referenceUnitEquivalentUnit ?? this.referenceUnitEquivalentUnit,
+      referenceUnitWeightGrams:
+          referenceUnitWeightGrams ?? this.referenceUnitWeightGrams,
+    );
+  }
+}
+
+class GroceryListItem {
+  const GroceryListItem({
+    required this.key,
+    required this.label,
+    this.detail,
+    this.sourceSummary,
+    this.isChecked = false,
+    this.isGenerated = false,
+  });
+
+  final String key;
+  final String label;
+  final String? detail;
+  final String? sourceSummary;
+  final bool isChecked;
+  final bool isGenerated;
 }
 
 class GrocerySection {
   const GrocerySection({required this.title, required this.items});
 
   final String title;
-  final List<String> items;
+  final List<GroceryListItem> items;
+}
+
+class GroceryExportSettings {
+  const GroceryExportSettings({
+    required this.includePinnedRecipes,
+    required this.includeSavedMeals,
+  });
+
+  static const defaults = GroceryExportSettings(
+    includePinnedRecipes: true,
+    includeSavedMeals: true,
+  );
+
+  final bool includePinnedRecipes;
+  final bool includeSavedMeals;
+
+  GroceryExportSettings copyWith({
+    bool? includePinnedRecipes,
+    bool? includeSavedMeals,
+  }) {
+    return GroceryExportSettings(
+      includePinnedRecipes: includePinnedRecipes ?? this.includePinnedRecipes,
+      includeSavedMeals: includeSavedMeals ?? this.includeSavedMeals,
+    );
+  }
+}
+
+class GroceryManualItemDraft {
+  const GroceryManualItemDraft({
+    required this.sectionTitle,
+    required this.label,
+    required this.quantity,
+    required this.unit,
+  });
+
+  final String sectionTitle;
+  final String label;
+  final String quantity;
+  final String unit;
+}
+
+class SavedMealComponentDraft {
+  const SavedMealComponentDraft({
+    required this.quantity,
+    required this.unit,
+    required this.item,
+    this.linkType = RecipeIngredientType.freeform,
+    this.linkedPantryItemId,
+    this.linkedRecipeId,
+  });
+
+  final String quantity;
+  final String unit;
+  final String item;
+  final RecipeIngredientType linkType;
+  final String? linkedPantryItemId;
+  final String? linkedRecipeId;
+
+  String? get linkedTargetId => switch (linkType) {
+    RecipeIngredientType.freeform => null,
+    RecipeIngredientType.pantryItem => linkedPantryItemId,
+    RecipeIngredientType.recipeReference => linkedRecipeId,
+  };
+
+  SavedMealComponentDraft copyWith({
+    String? quantity,
+    String? unit,
+    String? item,
+    RecipeIngredientType? linkType,
+    String? linkedPantryItemId,
+    String? linkedRecipeId,
+  }) {
+    return SavedMealComponentDraft(
+      quantity: quantity ?? this.quantity,
+      unit: unit ?? this.unit,
+      item: item ?? this.item,
+      linkType: linkType ?? this.linkType,
+      linkedPantryItemId: linkedPantryItemId ?? this.linkedPantryItemId,
+      linkedRecipeId: linkedRecipeId ?? this.linkedRecipeId,
+    );
+  }
+}
+
+class ResolvedSavedMealComponent {
+  const ResolvedSavedMealComponent({
+    required this.draft,
+    required this.linkTitle,
+    required this.linkSubtitle,
+    required this.nutrition,
+  });
+
+  final SavedMealComponentDraft draft;
+  final String? linkTitle;
+  final String linkSubtitle;
+  final NutritionSnapshot nutrition;
 }
 
 class SavedMeal {
   const SavedMeal({
+    required this.id,
     required this.name,
     required this.nutrition,
+    required this.manualNutrition,
     required this.adjustments,
+    required this.components,
+  });
+
+  final String id;
+  final String name;
+  final NutritionSnapshot nutrition;
+  final NutritionSnapshot manualNutrition;
+  final List<String> adjustments;
+  final List<SavedMealComponentDraft> components;
+
+  SavedMealDraft toDraft() {
+    return SavedMealDraft(
+      name: name,
+      manualNutrition: manualNutrition,
+      adjustments: adjustments,
+      components: components,
+    );
+  }
+}
+
+class SavedMealDraft {
+  const SavedMealDraft({
+    required this.name,
+    required this.manualNutrition,
+    required this.adjustments,
+    required this.components,
   });
 
   final String name;
-  final NutritionSnapshot nutrition;
+  final NutritionSnapshot manualNutrition;
   final List<String> adjustments;
+  final List<SavedMealComponentDraft> components;
+
+  SavedMealDraft copyWith({
+    String? name,
+    NutritionSnapshot? manualNutrition,
+    List<String>? adjustments,
+    List<SavedMealComponentDraft>? components,
+  }) {
+    return SavedMealDraft(
+      name: name ?? this.name,
+      manualNutrition: manualNutrition ?? this.manualNutrition,
+      adjustments: adjustments ?? this.adjustments,
+      components: components ?? this.components,
+    );
+  }
 }
 
 class DailyGoal {
@@ -210,13 +563,13 @@ abstract final class SeedData {
       versionLabel: 'Master + Deep Dish',
       servings: 8,
       nutrition: NutritionSnapshot(
-        calories: 412,
-        protein: 18,
-        carbs: 21,
+        calories: 401,
+        protein: 16,
+        carbs: 20,
         fat: 27,
         fiber: 2,
-        sodium: 540,
-        sugar: 3,
+        sodium: 532,
+        sugar: 2,
       ),
       tags: ['Nested recipe', 'Favorite scale', 'Auto pantry match'],
       note: 'Uses 1 serving of pie crust recipe and prompts on upstream edits.',
@@ -231,13 +584,13 @@ abstract final class SeedData {
       versionLabel: 'Lean Batch',
       servings: 6,
       nutrition: NutritionSnapshot(
-        calories: 336,
+        calories: 328,
         protein: 29,
-        carbs: 24,
+        carbs: 22,
         fat: 13,
         fiber: 8,
-        sodium: 620,
-        sugar: 6,
+        sodium: 560,
+        sugar: 5,
       ),
       tags: ['Meal plan', 'High protein', 'Barcode ingredients'],
       note: 'Suggested pantry pulls: black beans, tomato puree, spice blend.',
@@ -252,13 +605,13 @@ abstract final class SeedData {
       versionLabel: 'Single Serve',
       servings: 1,
       nutrition: NutritionSnapshot(
-        calories: 298,
-        protein: 23,
-        carbs: 26,
+        calories: 253,
+        protein: 14,
+        carbs: 23,
         fat: 11,
         fiber: 2,
-        sodium: 410,
-        sugar: 7,
+        sodium: 377,
+        sugar: 4,
       ),
       tags: ['Favorite scale', 'Breakfast', 'Low sugar'],
       note: 'Pinned note: perfect for the 6-inch skillet.',
@@ -288,6 +641,8 @@ abstract final class SeedData {
         unit: 'cup',
         item: 'Greek yogurt',
         preparation: '',
+        linkType: RecipeIngredientType.pantryItem,
+        linkedPantryItemId: 'pantry_0',
       ),
       RecipeIngredientDraft(
         quantity: '4',
@@ -338,6 +693,8 @@ abstract final class SeedData {
         unit: 'cans',
         item: 'Fire roasted tomatoes',
         preparation: '',
+        linkType: RecipeIngredientType.pantryItem,
+        linkedPantryItemId: 'pantry_1',
       ),
       RecipeIngredientDraft(
         quantity: '1',
@@ -382,6 +739,8 @@ abstract final class SeedData {
         unit: 'cup',
         item: 'Greek yogurt',
         preparation: '',
+        linkType: RecipeIngredientType.pantryItem,
+        linkedPantryItemId: 'pantry_0',
       ),
       RecipeIngredientDraft(
         quantity: '1',
@@ -439,8 +798,10 @@ abstract final class SeedData {
 
   static const pantryItems = <PantryItem>[
     PantryItem(
+      id: 'pantry_0',
       name: 'Nonfat Greek Yogurt',
       quantityLabel: '32 oz tub',
+      referenceUnit: 'serving',
       source: 'Barcode scan + Open Food Facts',
       nutrition: NutritionSnapshot(
         calories: 90,
@@ -452,10 +813,15 @@ abstract final class SeedData {
         sugar: 5,
       ),
       accent: Color(0xFFD87B42),
+      referenceUnitEquivalentQuantity: 1,
+      referenceUnitEquivalentUnit: 'cup',
+      referenceUnitWeightGrams: 227,
     ),
     PantryItem(
+      id: 'pantry_1',
       name: 'Fire Roasted Tomatoes',
       quantityLabel: '3 cans',
+      referenceUnit: 'can',
       source: 'Manual edit after scan',
       nutrition: NutritionSnapshot(
         calories: 25,
@@ -467,10 +833,15 @@ abstract final class SeedData {
         sugar: 3,
       ),
       accent: Color(0xFF7B5138),
+      referenceUnitEquivalentQuantity: 14.5,
+      referenceUnitEquivalentUnit: 'oz',
+      referenceUnitWeightGrams: 411,
     ),
     PantryItem(
+      id: 'pantry_2',
       name: 'Sourdough Pie Crust',
       quantityLabel: '2 recipe servings frozen',
+      referenceUnit: 'serving',
       source: 'Saved recipe ingredient',
       nutrition: NutritionSnapshot(
         calories: 188,
@@ -489,22 +860,45 @@ abstract final class SeedData {
     GrocerySection(
       title: 'Pinned Meal Plan Export',
       items: [
-        'Turkey chili onions',
-        'Cornbread mix',
-        'Sour cream add-on',
-        'Bell peppers',
+        GroceryListItem(
+          key: 'seed-turkey-chili-onions',
+          label: 'Turkey chili onions',
+        ),
+        GroceryListItem(key: 'seed-cornbread-mix', label: 'Cornbread mix'),
+        GroceryListItem(
+          key: 'seed-sour-cream-add-on',
+          label: 'Sour cream add-on',
+        ),
+        GroceryListItem(key: 'seed-bell-peppers', label: 'Bell peppers'),
       ],
     ),
     GrocerySection(
       title: 'Pantry Refill',
-      items: ['Greek yogurt', 'Low sodium broth', 'Eggs'],
+      items: [
+        GroceryListItem(key: 'seed-greek-yogurt', label: 'Greek yogurt'),
+        GroceryListItem(
+          key: 'seed-low-sodium-broth',
+          label: 'Low sodium broth',
+        ),
+        GroceryListItem(key: 'seed-eggs', label: 'Eggs'),
+      ],
     ),
   ];
 
   static const savedMeals = <SavedMeal>[
     SavedMeal(
+      id: 'saved_meal_0',
       name: 'Chili Night',
       nutrition: NutritionSnapshot(
+        calories: 642,
+        protein: 37,
+        carbs: 52,
+        fat: 31,
+        fiber: 11,
+        sodium: 980,
+        sugar: 8,
+      ),
+      manualNutrition: NutritionSnapshot(
         calories: 642,
         protein: 37,
         carbs: 52,
@@ -518,8 +912,10 @@ abstract final class SeedData {
         'Sour cream: +1 tbsp',
         'Cheddar: optional',
       ],
+      components: [],
     ),
     SavedMeal(
+      id: 'saved_meal_1',
       name: 'High-Protein Breakfast',
       nutrition: NutritionSnapshot(
         calories: 410,
@@ -530,7 +926,17 @@ abstract final class SeedData {
         sodium: 470,
         sugar: 9,
       ),
+      manualNutrition: NutritionSnapshot(
+        calories: 410,
+        protein: 35,
+        carbs: 31,
+        fat: 14,
+        fiber: 4,
+        sodium: 470,
+        sugar: 9,
+      ),
       adjustments: ['Pancakes: 1.0x', 'Yogurt bowl: 0.75x'],
+      components: [],
     ),
   ];
 
