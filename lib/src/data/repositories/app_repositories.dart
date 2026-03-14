@@ -376,6 +376,7 @@ class SyncRepository {
         'id': item.id,
         'title': item.title,
         'quantityLabel': item.quantityLabel,
+        'referenceUnitQuantity': item.referenceUnitQuantity,
         'referenceUnit': item.referenceUnit,
         'referenceUnitEquivalentQuantity': item.referenceUnitEquivalentQuantity,
         'referenceUnitEquivalentUnit': item.referenceUnitEquivalentUnit,
@@ -1043,13 +1044,14 @@ class RecipesRepository {
               type: RecipeIngredientType.pantryItem,
               title: item.title,
               referenceUnit: item.referenceUnit,
+              referenceUnitQuantity: item.referenceUnitQuantity,
               nutrition: _nutritionFromPantryItem(item),
               referenceUnitEquivalentQuantity:
                   item.referenceUnitEquivalentQuantity,
               referenceUnitEquivalentUnit: item.referenceUnitEquivalentUnit,
               referenceUnitWeightGrams: item.referenceUnitWeightGrams,
               subtitle:
-                  'Pantry item • ${item.quantityLabel} • nutrition per ${_referenceUnitSummary(item.referenceUnit, referenceUnitEquivalentQuantity: item.referenceUnitEquivalentQuantity, referenceUnitEquivalentUnit: item.referenceUnitEquivalentUnit, referenceUnitWeightGrams: item.referenceUnitWeightGrams)}',
+                  'Pantry item • ${item.quantityLabel} • nutrition per ${_referenceUnitSummary(item.referenceUnit, referenceUnitQuantity: item.referenceUnitQuantity, referenceUnitEquivalentQuantity: item.referenceUnitEquivalentQuantity, referenceUnitEquivalentUnit: item.referenceUnitEquivalentUnit, referenceUnitWeightGrams: item.referenceUnitWeightGrams)}',
             ),
           )
           .toList(growable: false);
@@ -1151,7 +1153,7 @@ class RecipesRepository {
                       linkTitle: pantryItem?.title,
                       linkSubtitle: pantryItem == null
                           ? 'Pantry item missing'
-                          : 'Pantry item • per ${_referenceUnitSummary(pantryItem.referenceUnit, referenceUnitEquivalentQuantity: pantryItem.referenceUnitEquivalentQuantity, referenceUnitEquivalentUnit: pantryItem.referenceUnitEquivalentUnit, referenceUnitWeightGrams: pantryItem.referenceUnitWeightGrams)}',
+                          : 'Pantry item • per ${_referenceUnitSummary(pantryItem.referenceUnit, referenceUnitQuantity: pantryItem.referenceUnitQuantity, referenceUnitEquivalentQuantity: pantryItem.referenceUnitEquivalentQuantity, referenceUnitEquivalentUnit: pantryItem.referenceUnitEquivalentUnit, referenceUnitWeightGrams: pantryItem.referenceUnitWeightGrams)}',
                       batchNutrition: _resolveIngredientBatchNutrition(
                         ingredient: ingredient,
                         currentRecipeId: recipeId,
@@ -1254,6 +1256,7 @@ class RecipesRepository {
                   quantity: quantity,
                   ingredientUnit: ingredient.unit,
                   referenceUnit: linkedPantryItem.referenceUnit,
+                  referenceUnitQuantity: linkedPantryItem.referenceUnitQuantity,
                   referenceUnitEquivalentQuantity:
                       linkedPantryItem.referenceUnitEquivalentQuantity,
                   referenceUnitEquivalentUnit:
@@ -1319,12 +1322,14 @@ class RecipesRepository {
 
   String _referenceUnitSummary(
     String referenceUnit, {
+    double referenceUnitQuantity = 1,
     double? referenceUnitEquivalentQuantity,
     String? referenceUnitEquivalentUnit,
     double? referenceUnitWeightGrams,
   }) {
     return MeasurementUnits.describeReferenceUnit(
       referenceUnit: referenceUnit,
+      referenceUnitQuantity: referenceUnitQuantity,
       referenceUnitEquivalentQuantity: referenceUnitEquivalentQuantity,
       referenceUnitEquivalentUnit: referenceUnitEquivalentUnit,
       referenceUnitWeightGrams: referenceUnitWeightGrams,
@@ -1371,6 +1376,7 @@ class PantryRepository {
               name: item.title,
               quantityLabel: item.quantityLabel,
               referenceUnit: item.referenceUnit,
+              referenceUnitQuantity: item.referenceUnitQuantity,
               referenceUnitEquivalentQuantity:
                   item.referenceUnitEquivalentQuantity,
               referenceUnitEquivalentUnit: item.referenceUnitEquivalentUnit,
@@ -1400,6 +1406,9 @@ class PantryRepository {
   }) async {
     final itemId =
         existingId ?? 'pantry_${DateTime.now().microsecondsSinceEpoch}';
+    final normalizedReferenceUnitQuantity = draft.referenceUnitQuantity > 0
+        ? draft.referenceUnitQuantity
+        : 1.0;
     final normalizedEquivalentQuantity = draft.referenceUnitEquivalentQuantity;
     final normalizedEquivalentUnit = draft.referenceUnitEquivalentUnit?.trim();
     final normalizedBarcode = _normalizedOptionalText(draft.barcode);
@@ -1418,6 +1427,7 @@ class PantryRepository {
             id: itemId,
             title: draft.name.trim(),
             quantityLabel: draft.quantityLabel.trim(),
+            referenceUnitQuantity: Value(normalizedReferenceUnitQuantity),
             referenceUnit: Value(draft.referenceUnit.trim()),
             referenceUnitEquivalentQuantity: Value(
               normalizedEquivalentQuantity != null &&
@@ -2112,6 +2122,7 @@ class GroceryRepository {
       quantity: quantity,
       ingredientUnit: ingredientUnit,
       referenceUnit: pantryItem.referenceUnit,
+      referenceUnitQuantity: pantryItem.referenceUnitQuantity,
       referenceUnitEquivalentQuantity:
           pantryItem.referenceUnitEquivalentQuantity,
       referenceUnitEquivalentUnit: pantryItem.referenceUnitEquivalentUnit,
@@ -2482,13 +2493,14 @@ class FoodLogRepository {
                 sourceType: FoodLogEntrySourceType.pantryItem,
                 title: item.name,
                 referenceUnit: item.referenceUnit,
+                referenceUnitQuantity: item.referenceUnitQuantity,
                 nutrition: item.nutrition,
                 referenceUnitEquivalentQuantity:
                     item.referenceUnitEquivalentQuantity,
                 referenceUnitEquivalentUnit: item.referenceUnitEquivalentUnit,
                 referenceUnitWeightGrams: item.referenceUnitWeightGrams,
                 subtitle:
-                    'Pantry item • ${item.quantityLabel} • per ${MeasurementUnits.describeReferenceUnit(referenceUnit: item.referenceUnit, referenceUnitEquivalentQuantity: item.referenceUnitEquivalentQuantity, referenceUnitEquivalentUnit: item.referenceUnitEquivalentUnit, referenceUnitWeightGrams: item.referenceUnitWeightGrams)}',
+                    'Pantry item • ${item.quantityLabel} • per ${MeasurementUnits.describeReferenceUnit(referenceUnit: item.referenceUnit, referenceUnitQuantity: item.referenceUnitQuantity, referenceUnitEquivalentQuantity: item.referenceUnitEquivalentQuantity, referenceUnitEquivalentUnit: item.referenceUnitEquivalentUnit, referenceUnitWeightGrams: item.referenceUnitWeightGrams)}',
               ),
             )
             .toList(growable: false);
@@ -2783,6 +2795,7 @@ class FoodLogRepository {
                   quantity: quantity,
                   ingredientUnit: component.unit,
                   referenceUnit: linkedPantryItem.referenceUnit,
+                  referenceUnitQuantity: linkedPantryItem.referenceUnitQuantity,
                   referenceUnitEquivalentQuantity:
                       linkedPantryItem.referenceUnitEquivalentQuantity,
                   referenceUnitEquivalentUnit:

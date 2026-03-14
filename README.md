@@ -12,6 +12,7 @@ This repository now includes:
 - Local recipe CRUD with persisted ingredients and directions.
 - Recipe detail flows with scaling, calorie sorting, pantry links, and variation duplication.
 - Pantry brand and barcode capture.
+- Camera barcode scanning plus Open Food Facts pantry nutrition import.
 - Universal Quick Add for grocery, pantry, and food-log entry.
 - A local-first sync queue with optional Firebase Auth + Firestore push wiring when cloud config is present.
 - An adaptive mobile shell with the four primary tabs:
@@ -24,7 +25,7 @@ This repository now includes:
 ## Progress Snapshot
 
 - Local-first recipe, pantry, grocery, and food-log flows are implemented and verified.
-- Pantry items now support brand and barcode capture end to end.
+- Pantry items now support camera barcode scanning, pasted barcode lookup, and nutrition import through Open Food Facts.
 - Universal Quick Add is live from the main shell for grocery, pantry, and food-log entry.
 - Nested recipe and saved-meal nutrition flows are wired through the local database.
 - Optional Firebase sync has a real queue, Sync Center UI, Android/iOS app registration, and project-bound config scaffolding for `nutrichef-recipeapp-6d24f`.
@@ -101,6 +102,9 @@ The current draft has passed:
 - `flutter analyze`
 - `flutter test`
 - `flutter build apk --debug`
+- Android emulator smoke test across Recipes, Grocery, Pantry, Food Log, Quick Add, and pantry barcode import
+
+The emulator also verified the manual barcode import path end to end. Live camera scanning still needs one real Android device check because the emulator camera backend opens the scanner sheet and permission flow but does not provide a reliable barcode preview.
 
 ## Key Docs
 
@@ -113,7 +117,7 @@ The current draft has passed:
 ## Near-Term Build Plan
 
 1. Finish real Firebase enablement in the console and validate end-to-end Android sign-in plus Firestore push.
-2. Add camera barcode scanning plus pantry nutrition auto-import.
-3. Expand recipe import from pasted text into URL and OCR screenshot flows.
-4. Add cloud pull, merge, and conflict handling on top of the Firestore push queue.
-5. Build the smarter planning layer: meal-plan folders, macro-aware suggestions, and richer organization/sorting.
+2. Expand recipe import from pasted text into URL and OCR screenshot flows.
+3. Add cloud pull, merge, and conflict handling on top of the Firestore push queue.
+4. Build the smarter planning layer: meal-plan folders, macro-aware suggestions, and richer organization/sorting.
+5. Add pantry item photo import and richer imported-product image handling on top of the barcode flow.

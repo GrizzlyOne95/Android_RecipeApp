@@ -187,6 +187,7 @@ class IngredientLinkTarget {
     required this.type,
     required this.title,
     required this.referenceUnit,
+    this.referenceUnitQuantity = 1,
     required this.nutrition,
     this.referenceUnitEquivalentQuantity,
     this.referenceUnitEquivalentUnit,
@@ -198,6 +199,7 @@ class IngredientLinkTarget {
   final RecipeIngredientType type;
   final String title;
   final String referenceUnit;
+  final double referenceUnitQuantity;
   final NutritionSnapshot nutrition;
   final double? referenceUnitEquivalentQuantity;
   final String? referenceUnitEquivalentUnit;
@@ -273,6 +275,7 @@ class PantryItem {
     required this.name,
     required this.quantityLabel,
     required this.referenceUnit,
+    this.referenceUnitQuantity = 1,
     required this.source,
     required this.nutrition,
     required this.accent,
@@ -287,6 +290,7 @@ class PantryItem {
   final String name;
   final String quantityLabel;
   final String referenceUnit;
+  final double referenceUnitQuantity;
   final String source;
   final NutritionSnapshot nutrition;
   final Color accent;
@@ -301,6 +305,7 @@ class PantryItem {
       name: name,
       quantityLabel: quantityLabel,
       referenceUnit: referenceUnit,
+      referenceUnitQuantity: referenceUnitQuantity,
       source: source,
       nutrition: nutrition,
       accent: accent,
@@ -318,6 +323,7 @@ class PantryItemDraft {
     required this.name,
     required this.quantityLabel,
     required this.referenceUnit,
+    this.referenceUnitQuantity = 1,
     required this.source,
     required this.nutrition,
     required this.accent,
@@ -331,6 +337,7 @@ class PantryItemDraft {
   final String name;
   final String quantityLabel;
   final String referenceUnit;
+  final double referenceUnitQuantity;
   final String source;
   final NutritionSnapshot nutrition;
   final Color accent;
@@ -344,6 +351,7 @@ class PantryItemDraft {
     String? name,
     String? quantityLabel,
     String? referenceUnit,
+    double? referenceUnitQuantity,
     String? source,
     NutritionSnapshot? nutrition,
     Color? accent,
@@ -357,6 +365,8 @@ class PantryItemDraft {
       name: name ?? this.name,
       quantityLabel: quantityLabel ?? this.quantityLabel,
       referenceUnit: referenceUnit ?? this.referenceUnit,
+      referenceUnitQuantity:
+          referenceUnitQuantity ?? this.referenceUnitQuantity,
       source: source ?? this.source,
       nutrition: nutrition ?? this.nutrition,
       accent: accent ?? this.accent,
@@ -558,6 +568,7 @@ class FoodLogEntryTarget {
     required this.sourceType,
     required this.title,
     required this.referenceUnit,
+    this.referenceUnitQuantity = 1,
     required this.nutrition,
     this.referenceUnitEquivalentQuantity,
     this.referenceUnitEquivalentUnit,
@@ -569,6 +580,7 @@ class FoodLogEntryTarget {
   final FoodLogEntrySourceType sourceType;
   final String title;
   final String referenceUnit;
+  final double referenceUnitQuantity;
   final NutritionSnapshot nutrition;
   final double? referenceUnitEquivalentQuantity;
   final String? referenceUnitEquivalentUnit;

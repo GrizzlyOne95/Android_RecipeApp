@@ -2165,6 +2165,18 @@ class $PantryItemsTableTable extends PantryItemsTable
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _referenceUnitQuantityMeta =
+      const VerificationMeta('referenceUnitQuantity');
+  @override
+  late final GeneratedColumn<double> referenceUnitQuantity =
+      GeneratedColumn<double>(
+        'reference_unit_quantity',
+        aliasedName,
+        false,
+        type: DriftSqlType.double,
+        requiredDuringInsert: false,
+        defaultValue: const Constant(1),
+      );
   static const VerificationMeta _referenceUnitMeta = const VerificationMeta(
     'referenceUnit',
   );
@@ -2333,6 +2345,7 @@ class $PantryItemsTableTable extends PantryItemsTable
     id,
     title,
     quantityLabel,
+    referenceUnitQuantity,
     referenceUnit,
     referenceUnitEquivalentQuantity,
     referenceUnitEquivalentUnit,
@@ -2385,6 +2398,15 @@ class $PantryItemsTableTable extends PantryItemsTable
       );
     } else if (isInserting) {
       context.missing(_quantityLabelMeta);
+    }
+    if (data.containsKey('reference_unit_quantity')) {
+      context.handle(
+        _referenceUnitQuantityMeta,
+        referenceUnitQuantity.isAcceptableOrUnknown(
+          data['reference_unit_quantity']!,
+          _referenceUnitQuantityMeta,
+        ),
+      );
     }
     if (data.containsKey('reference_unit')) {
       context.handle(
@@ -2535,6 +2557,10 @@ class $PantryItemsTableTable extends PantryItemsTable
         DriftSqlType.string,
         data['${effectivePrefix}quantity_label'],
       )!,
+      referenceUnitQuantity: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}reference_unit_quantity'],
+      )!,
       referenceUnit: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}reference_unit'],
@@ -2613,6 +2639,7 @@ class PantryItemsTableData extends DataClass
   final String id;
   final String title;
   final String quantityLabel;
+  final double referenceUnitQuantity;
   final String referenceUnit;
   final double? referenceUnitEquivalentQuantity;
   final String? referenceUnitEquivalentUnit;
@@ -2633,6 +2660,7 @@ class PantryItemsTableData extends DataClass
     required this.id,
     required this.title,
     required this.quantityLabel,
+    required this.referenceUnitQuantity,
     required this.referenceUnit,
     this.referenceUnitEquivalentQuantity,
     this.referenceUnitEquivalentUnit,
@@ -2656,6 +2684,7 @@ class PantryItemsTableData extends DataClass
     map['id'] = Variable<String>(id);
     map['title'] = Variable<String>(title);
     map['quantity_label'] = Variable<String>(quantityLabel);
+    map['reference_unit_quantity'] = Variable<double>(referenceUnitQuantity);
     map['reference_unit'] = Variable<String>(referenceUnit);
     if (!nullToAbsent || referenceUnitEquivalentQuantity != null) {
       map['reference_unit_equivalent_quantity'] = Variable<double>(
@@ -2696,6 +2725,7 @@ class PantryItemsTableData extends DataClass
       id: Value(id),
       title: Value(title),
       quantityLabel: Value(quantityLabel),
+      referenceUnitQuantity: Value(referenceUnitQuantity),
       referenceUnit: Value(referenceUnit),
       referenceUnitEquivalentQuantity:
           referenceUnitEquivalentQuantity == null && nullToAbsent
@@ -2736,6 +2766,9 @@ class PantryItemsTableData extends DataClass
       id: serializer.fromJson<String>(json['id']),
       title: serializer.fromJson<String>(json['title']),
       quantityLabel: serializer.fromJson<String>(json['quantityLabel']),
+      referenceUnitQuantity: serializer.fromJson<double>(
+        json['referenceUnitQuantity'],
+      ),
       referenceUnit: serializer.fromJson<String>(json['referenceUnit']),
       referenceUnitEquivalentQuantity: serializer.fromJson<double?>(
         json['referenceUnitEquivalentQuantity'],
@@ -2767,6 +2800,7 @@ class PantryItemsTableData extends DataClass
       'id': serializer.toJson<String>(id),
       'title': serializer.toJson<String>(title),
       'quantityLabel': serializer.toJson<String>(quantityLabel),
+      'referenceUnitQuantity': serializer.toJson<double>(referenceUnitQuantity),
       'referenceUnit': serializer.toJson<String>(referenceUnit),
       'referenceUnitEquivalentQuantity': serializer.toJson<double?>(
         referenceUnitEquivalentQuantity,
@@ -2796,6 +2830,7 @@ class PantryItemsTableData extends DataClass
     String? id,
     String? title,
     String? quantityLabel,
+    double? referenceUnitQuantity,
     String? referenceUnit,
     Value<double?> referenceUnitEquivalentQuantity = const Value.absent(),
     Value<String?> referenceUnitEquivalentUnit = const Value.absent(),
@@ -2816,6 +2851,7 @@ class PantryItemsTableData extends DataClass
     id: id ?? this.id,
     title: title ?? this.title,
     quantityLabel: quantityLabel ?? this.quantityLabel,
+    referenceUnitQuantity: referenceUnitQuantity ?? this.referenceUnitQuantity,
     referenceUnit: referenceUnit ?? this.referenceUnit,
     referenceUnitEquivalentQuantity: referenceUnitEquivalentQuantity.present
         ? referenceUnitEquivalentQuantity.value
@@ -2846,6 +2882,9 @@ class PantryItemsTableData extends DataClass
       quantityLabel: data.quantityLabel.present
           ? data.quantityLabel.value
           : this.quantityLabel,
+      referenceUnitQuantity: data.referenceUnitQuantity.present
+          ? data.referenceUnitQuantity.value
+          : this.referenceUnitQuantity,
       referenceUnit: data.referenceUnit.present
           ? data.referenceUnit.value
           : this.referenceUnit,
@@ -2880,6 +2919,7 @@ class PantryItemsTableData extends DataClass
           ..write('id: $id, ')
           ..write('title: $title, ')
           ..write('quantityLabel: $quantityLabel, ')
+          ..write('referenceUnitQuantity: $referenceUnitQuantity, ')
           ..write('referenceUnit: $referenceUnit, ')
           ..write(
             'referenceUnitEquivalentQuantity: $referenceUnitEquivalentQuantity, ',
@@ -2907,6 +2947,7 @@ class PantryItemsTableData extends DataClass
     id,
     title,
     quantityLabel,
+    referenceUnitQuantity,
     referenceUnit,
     referenceUnitEquivalentQuantity,
     referenceUnitEquivalentUnit,
@@ -2931,6 +2972,7 @@ class PantryItemsTableData extends DataClass
           other.id == this.id &&
           other.title == this.title &&
           other.quantityLabel == this.quantityLabel &&
+          other.referenceUnitQuantity == this.referenceUnitQuantity &&
           other.referenceUnit == this.referenceUnit &&
           other.referenceUnitEquivalentQuantity ==
               this.referenceUnitEquivalentQuantity &&
@@ -2955,6 +2997,7 @@ class PantryItemsTableCompanion extends UpdateCompanion<PantryItemsTableData> {
   final Value<String> id;
   final Value<String> title;
   final Value<String> quantityLabel;
+  final Value<double> referenceUnitQuantity;
   final Value<String> referenceUnit;
   final Value<double?> referenceUnitEquivalentQuantity;
   final Value<String?> referenceUnitEquivalentUnit;
@@ -2976,6 +3019,7 @@ class PantryItemsTableCompanion extends UpdateCompanion<PantryItemsTableData> {
     this.id = const Value.absent(),
     this.title = const Value.absent(),
     this.quantityLabel = const Value.absent(),
+    this.referenceUnitQuantity = const Value.absent(),
     this.referenceUnit = const Value.absent(),
     this.referenceUnitEquivalentQuantity = const Value.absent(),
     this.referenceUnitEquivalentUnit = const Value.absent(),
@@ -2998,6 +3042,7 @@ class PantryItemsTableCompanion extends UpdateCompanion<PantryItemsTableData> {
     required String id,
     required String title,
     required String quantityLabel,
+    this.referenceUnitQuantity = const Value.absent(),
     this.referenceUnit = const Value.absent(),
     this.referenceUnitEquivalentQuantity = const Value.absent(),
     this.referenceUnitEquivalentUnit = const Value.absent(),
@@ -3032,6 +3077,7 @@ class PantryItemsTableCompanion extends UpdateCompanion<PantryItemsTableData> {
     Expression<String>? id,
     Expression<String>? title,
     Expression<String>? quantityLabel,
+    Expression<double>? referenceUnitQuantity,
     Expression<String>? referenceUnit,
     Expression<double>? referenceUnitEquivalentQuantity,
     Expression<String>? referenceUnitEquivalentUnit,
@@ -3054,6 +3100,8 @@ class PantryItemsTableCompanion extends UpdateCompanion<PantryItemsTableData> {
       if (id != null) 'id': id,
       if (title != null) 'title': title,
       if (quantityLabel != null) 'quantity_label': quantityLabel,
+      if (referenceUnitQuantity != null)
+        'reference_unit_quantity': referenceUnitQuantity,
       if (referenceUnit != null) 'reference_unit': referenceUnit,
       if (referenceUnitEquivalentQuantity != null)
         'reference_unit_equivalent_quantity': referenceUnitEquivalentQuantity,
@@ -3081,6 +3129,7 @@ class PantryItemsTableCompanion extends UpdateCompanion<PantryItemsTableData> {
     Value<String>? id,
     Value<String>? title,
     Value<String>? quantityLabel,
+    Value<double>? referenceUnitQuantity,
     Value<String>? referenceUnit,
     Value<double?>? referenceUnitEquivalentQuantity,
     Value<String?>? referenceUnitEquivalentUnit,
@@ -3103,6 +3152,8 @@ class PantryItemsTableCompanion extends UpdateCompanion<PantryItemsTableData> {
       id: id ?? this.id,
       title: title ?? this.title,
       quantityLabel: quantityLabel ?? this.quantityLabel,
+      referenceUnitQuantity:
+          referenceUnitQuantity ?? this.referenceUnitQuantity,
       referenceUnit: referenceUnit ?? this.referenceUnit,
       referenceUnitEquivalentQuantity:
           referenceUnitEquivalentQuantity ??
@@ -3138,6 +3189,11 @@ class PantryItemsTableCompanion extends UpdateCompanion<PantryItemsTableData> {
     }
     if (quantityLabel.present) {
       map['quantity_label'] = Variable<String>(quantityLabel.value);
+    }
+    if (referenceUnitQuantity.present) {
+      map['reference_unit_quantity'] = Variable<double>(
+        referenceUnitQuantity.value,
+      );
     }
     if (referenceUnit.present) {
       map['reference_unit'] = Variable<String>(referenceUnit.value);
@@ -3205,6 +3261,7 @@ class PantryItemsTableCompanion extends UpdateCompanion<PantryItemsTableData> {
           ..write('id: $id, ')
           ..write('title: $title, ')
           ..write('quantityLabel: $quantityLabel, ')
+          ..write('referenceUnitQuantity: $referenceUnitQuantity, ')
           ..write('referenceUnit: $referenceUnit, ')
           ..write(
             'referenceUnitEquivalentQuantity: $referenceUnitEquivalentQuantity, ',
@@ -8967,6 +9024,7 @@ typedef $$PantryItemsTableTableCreateCompanionBuilder =
       required String id,
       required String title,
       required String quantityLabel,
+      Value<double> referenceUnitQuantity,
       Value<String> referenceUnit,
       Value<double?> referenceUnitEquivalentQuantity,
       Value<String?> referenceUnitEquivalentUnit,
@@ -8990,6 +9048,7 @@ typedef $$PantryItemsTableTableUpdateCompanionBuilder =
       Value<String> id,
       Value<String> title,
       Value<String> quantityLabel,
+      Value<double> referenceUnitQuantity,
       Value<String> referenceUnit,
       Value<double?> referenceUnitEquivalentQuantity,
       Value<String?> referenceUnitEquivalentUnit,
@@ -9030,6 +9089,11 @@ class $$PantryItemsTableTableFilterComposer
 
   ColumnFilters<String> get quantityLabel => $composableBuilder(
     column: $table.quantityLabel,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get referenceUnitQuantity => $composableBuilder(
+    column: $table.referenceUnitQuantity,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9139,6 +9203,11 @@ class $$PantryItemsTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<double> get referenceUnitQuantity => $composableBuilder(
+    column: $table.referenceUnitQuantity,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get referenceUnit => $composableBuilder(
     column: $table.referenceUnit,
     builder: (column) => ColumnOrderings(column),
@@ -9241,6 +9310,11 @@ class $$PantryItemsTableTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<double> get referenceUnitQuantity => $composableBuilder(
+    column: $table.referenceUnitQuantity,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get referenceUnit => $composableBuilder(
     column: $table.referenceUnit,
     builder: (column) => column,
@@ -9339,6 +9413,7 @@ class $$PantryItemsTableTableTableManager
                 Value<String> id = const Value.absent(),
                 Value<String> title = const Value.absent(),
                 Value<String> quantityLabel = const Value.absent(),
+                Value<double> referenceUnitQuantity = const Value.absent(),
                 Value<String> referenceUnit = const Value.absent(),
                 Value<double?> referenceUnitEquivalentQuantity =
                     const Value.absent(),
@@ -9362,6 +9437,7 @@ class $$PantryItemsTableTableTableManager
                 id: id,
                 title: title,
                 quantityLabel: quantityLabel,
+                referenceUnitQuantity: referenceUnitQuantity,
                 referenceUnit: referenceUnit,
                 referenceUnitEquivalentQuantity:
                     referenceUnitEquivalentQuantity,
@@ -9386,6 +9462,7 @@ class $$PantryItemsTableTableTableManager
                 required String id,
                 required String title,
                 required String quantityLabel,
+                Value<double> referenceUnitQuantity = const Value.absent(),
                 Value<String> referenceUnit = const Value.absent(),
                 Value<double?> referenceUnitEquivalentQuantity =
                     const Value.absent(),
@@ -9409,6 +9486,7 @@ class $$PantryItemsTableTableTableManager
                 id: id,
                 title: title,
                 quantityLabel: quantityLabel,
+                referenceUnitQuantity: referenceUnitQuantity,
                 referenceUnit: referenceUnit,
                 referenceUnitEquivalentQuantity:
                     referenceUnitEquivalentQuantity,

@@ -51,6 +51,7 @@ abstract final class MeasurementUnits {
     required double? quantity,
     required String ingredientUnit,
     required String referenceUnit,
+    double referenceUnitQuantity = 1,
     double? referenceUnitEquivalentQuantity,
     String? referenceUnitEquivalentUnit,
     double? referenceUnitWeightGrams,
@@ -62,9 +63,15 @@ abstract final class MeasurementUnits {
     final normalizedIngredientUnit = _normalizeComparableUnit(ingredientUnit);
     final normalizedReferenceUnit = _normalizeComparableUnit(referenceUnit);
 
+    final normalizedReferenceUnitQuantity = referenceUnitQuantity > 0
+        ? referenceUnitQuantity
+        : 1.0;
+
     if (normalizedIngredientUnit.isEmpty ||
         _unitsMatch(normalizedIngredientUnit, normalizedReferenceUnit)) {
-      return LinkedQuantityResolution.resolved(quantity);
+      return LinkedQuantityResolution.resolved(
+        quantity / normalizedReferenceUnitQuantity,
+      );
     }
 
     final convertedToReferenceUnit = _convertBetweenUnits(
@@ -73,7 +80,9 @@ abstract final class MeasurementUnits {
       toUnit: referenceUnit,
     );
     if (convertedToReferenceUnit != null) {
-      return LinkedQuantityResolution.resolved(convertedToReferenceUnit);
+      return LinkedQuantityResolution.resolved(
+        convertedToReferenceUnit / normalizedReferenceUnitQuantity,
+      );
     }
 
     if (referenceUnitEquivalentQuantity != null &&
@@ -122,14 +131,26 @@ abstract final class MeasurementUnits {
 
   static String describeReferenceUnit({
     required String referenceUnit,
+    double referenceUnitQuantity = 1,
     double? referenceUnitEquivalentQuantity,
     String? referenceUnitEquivalentUnit,
     double? referenceUnitWeightGrams,
   }) {
-    final parts = <String>['1 ${referenceUnit.trim()}'];
+    final effectiveQuantity = referenceUnitQuantity > 0
+        ? referenceUnitQuantity
+        : 1.0;
+    final normalizedReferenceUnit = _normalizeComparableUnit(referenceUnit);
+    final parts = <String>[
+      '${formatDecimal(effectiveQuantity)} ${referenceUnit.trim()}',
+    ];
 
     if (referenceUnitWeightGrams != null && referenceUnitWeightGrams > 0) {
-      parts.add('${formatDecimal(referenceUnitWeightGrams)} g');
+      final shouldAddWeight =
+          normalizedReferenceUnit != 'g' ||
+          (referenceUnitWeightGrams - effectiveQuantity).abs() >= 0.001;
+      if (shouldAddWeight) {
+        parts.add('${formatDecimal(referenceUnitWeightGrams)} g');
+      }
     }
 
     if (referenceUnitEquivalentQuantity != null &&
@@ -138,7 +159,7 @@ abstract final class MeasurementUnits {
         referenceUnitEquivalentUnit.trim().isNotEmpty &&
         !_unitsMatch(
           _normalizeComparableUnit(referenceUnitEquivalentUnit),
-          _normalizeComparableUnit(referenceUnit),
+          normalizedReferenceUnit,
         )) {
       parts.add(
         '${formatDecimal(referenceUnitEquivalentQuantity)} ${referenceUnitEquivalentUnit.trim()}',

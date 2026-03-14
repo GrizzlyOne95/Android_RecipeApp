@@ -462,6 +462,7 @@ void main() {
         brand: 'Good Culture',
         barcode: '012345678905',
         quantityLabel: '24 oz tub',
+        referenceUnitQuantity: 0.5,
         referenceUnit: 'serving',
         source: 'Manual entry',
         nutrition: NutritionSnapshot(
@@ -486,6 +487,7 @@ void main() {
     );
 
     expect(created.referenceUnit, 'serving');
+    expect(created.referenceUnitQuantity, 0.5);
     expect(created.referenceUnitEquivalentQuantity, 0.5);
     expect(created.referenceUnitEquivalentUnit, 'cup');
     expect(created.referenceUnitWeightGrams, 113);
@@ -499,6 +501,7 @@ void main() {
         brand: null,
         barcode: null,
         quantityLabel: '24 oz tub',
+        referenceUnitQuantity: 120,
         referenceUnit: 'serving',
         source: 'Manual update',
         nutrition: NutritionSnapshot(
@@ -524,6 +527,7 @@ void main() {
     expect(updated.source, 'Manual update');
     expect(updated.nutrition.calories, 120);
     expect(updated.nutrition.protein, 16);
+    expect(updated.referenceUnitQuantity, 120);
     expect(updated.referenceUnitEquivalentQuantity, 120);
     expect(updated.referenceUnitEquivalentUnit, 'g');
     expect(updated.referenceUnitWeightGrams, 120);

@@ -45,4 +45,30 @@ void main() {
     expect(byVolume.referenceUnits, closeTo(1, 0.000001));
     expect(byWeight.referenceUnits, closeTo(1, 0.000001));
   });
+
+  test('measurement units support multi-unit pantry nutrition bases', () {
+    final halfOfHundredGrams = MeasurementUnits.resolveLinkedReferenceUnits(
+      quantity: 50,
+      ingredientUnit: 'g',
+      referenceUnit: 'g',
+      referenceUnitQuantity: 100,
+    );
+    final halfOfTwoTablespoons = MeasurementUnits.resolveLinkedReferenceUnits(
+      quantity: 1,
+      ingredientUnit: 'tbsp',
+      referenceUnit: 'tbsp',
+      referenceUnitQuantity: 2,
+      referenceUnitWeightGrams: 32,
+    );
+
+    expect(halfOfHundredGrams.referenceUnits, closeTo(0.5, 0.000001));
+    expect(halfOfTwoTablespoons.referenceUnits, closeTo(0.5, 0.000001));
+    expect(
+      MeasurementUnits.describeReferenceUnit(
+        referenceUnit: 'g',
+        referenceUnitQuantity: 100,
+      ),
+      '100 g',
+    );
+  });
 }

@@ -692,6 +692,7 @@ class _FoodLogEntryEditorSheetState extends State<_FoodLogEntryEditorSheet> {
                 ),
                 ingredientUnit: _unitController.text,
                 referenceUnit: selectedTarget.referenceUnit,
+                referenceUnitQuantity: selectedTarget.referenceUnitQuantity,
                 referenceUnitEquivalentQuantity:
                     selectedTarget.referenceUnitEquivalentQuantity,
                 referenceUnitEquivalentUnit:
@@ -893,7 +894,7 @@ class _FoodLogEntryEditorSheetState extends State<_FoodLogEntryEditorSheet> {
       final unitLabel = _unitController.text.trim().isEmpty
           ? 'blank'
           : _unitController.text.trim();
-      return 'Unit "$unitLabel" does not convert to ${MeasurementUnits.describeReferenceUnit(referenceUnit: target.referenceUnit, referenceUnitEquivalentQuantity: target.referenceUnitEquivalentQuantity, referenceUnitEquivalentUnit: target.referenceUnitEquivalentUnit, referenceUnitWeightGrams: target.referenceUnitWeightGrams)}.';
+      return 'Unit "$unitLabel" does not convert to ${MeasurementUnits.describeReferenceUnit(referenceUnit: target.referenceUnit, referenceUnitQuantity: target.referenceUnitQuantity, referenceUnitEquivalentQuantity: target.referenceUnitEquivalentQuantity, referenceUnitEquivalentUnit: target.referenceUnitEquivalentUnit, referenceUnitWeightGrams: target.referenceUnitWeightGrams)}.';
     }
     return null;
   }
@@ -914,6 +915,7 @@ class _FoodLogEntryEditorSheetState extends State<_FoodLogEntryEditorSheet> {
       quantity: MeasurementUnits.parseQuantity(_quantityController.text),
       ingredientUnit: _unitController.text,
       referenceUnit: target.referenceUnit,
+      referenceUnitQuantity: target.referenceUnitQuantity,
       referenceUnitEquivalentQuantity: target.referenceUnitEquivalentQuantity,
       referenceUnitEquivalentUnit: target.referenceUnitEquivalentUnit,
       referenceUnitWeightGrams: target.referenceUnitWeightGrams,
@@ -1440,7 +1442,7 @@ class _SavedMealEditorSheetState extends State<_SavedMealEditorSheet> {
             ? 'blank'
             : component.unit.text.trim();
         warnings.add(
-          'Component ${index + 1}: unit "$unitLabel" does not convert to ${MeasurementUnits.describeReferenceUnit(referenceUnit: target.referenceUnit, referenceUnitEquivalentQuantity: target.referenceUnitEquivalentQuantity, referenceUnitEquivalentUnit: target.referenceUnitEquivalentUnit, referenceUnitWeightGrams: target.referenceUnitWeightGrams)}.',
+          'Component ${index + 1}: unit "$unitLabel" does not convert to ${MeasurementUnits.describeReferenceUnit(referenceUnit: target.referenceUnit, referenceUnitQuantity: target.referenceUnitQuantity, referenceUnitEquivalentQuantity: target.referenceUnitEquivalentQuantity, referenceUnitEquivalentUnit: target.referenceUnitEquivalentUnit, referenceUnitWeightGrams: target.referenceUnitWeightGrams)}.',
         );
       }
     }
@@ -1456,6 +1458,7 @@ class _SavedMealEditorSheetState extends State<_SavedMealEditorSheet> {
       quantity: MeasurementUnits.parseQuantity(component.quantity.text),
       ingredientUnit: component.unit.text,
       referenceUnit: target.referenceUnit,
+      referenceUnitQuantity: target.referenceUnitQuantity,
       referenceUnitEquivalentQuantity: target.referenceUnitEquivalentQuantity,
       referenceUnitEquivalentUnit: target.referenceUnitEquivalentUnit,
       referenceUnitWeightGrams: target.referenceUnitWeightGrams,

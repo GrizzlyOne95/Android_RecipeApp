@@ -430,7 +430,9 @@ class _RecipeImportSheetState extends State<_RecipeImportSheet> {
                   TextFormField(
                     controller: _sourceController,
                     minLines: widget.mode == RecipeImportMode.urlPaste ? 6 : 12,
-                    maxLines: widget.mode == RecipeImportMode.urlPaste ? 10 : 18,
+                    maxLines: widget.mode == RecipeImportMode.urlPaste
+                        ? 10
+                        : 18,
                     decoration: InputDecoration(
                       labelText: widget.mode.sourceLabel,
                       hintText: widget.mode.sourceHint,
@@ -1783,7 +1785,7 @@ class _RecipeEditorSheetState extends State<RecipeEditorSheet> {
             ? 'blank'
             : ingredient.unit.text.trim();
         warnings.add(
-          'Ingredient ${index + 1}: unit "$unitLabel" does not convert to ${MeasurementUnits.describeReferenceUnit(referenceUnit: target.referenceUnit, referenceUnitEquivalentQuantity: target.referenceUnitEquivalentQuantity, referenceUnitEquivalentUnit: target.referenceUnitEquivalentUnit, referenceUnitWeightGrams: target.referenceUnitWeightGrams)}.',
+          'Ingredient ${index + 1}: unit "$unitLabel" does not convert to ${MeasurementUnits.describeReferenceUnit(referenceUnit: target.referenceUnit, referenceUnitQuantity: target.referenceUnitQuantity, referenceUnitEquivalentQuantity: target.referenceUnitEquivalentQuantity, referenceUnitEquivalentUnit: target.referenceUnitEquivalentUnit, referenceUnitWeightGrams: target.referenceUnitWeightGrams)}.',
         );
       }
     }
@@ -1799,6 +1801,7 @@ class _RecipeEditorSheetState extends State<RecipeEditorSheet> {
       quantity: MeasurementUnits.parseQuantity(ingredient.quantity.text),
       ingredientUnit: ingredient.unit.text,
       referenceUnit: target.referenceUnit,
+      referenceUnitQuantity: target.referenceUnitQuantity,
       referenceUnitEquivalentQuantity: target.referenceUnitEquivalentQuantity,
       referenceUnitEquivalentUnit: target.referenceUnitEquivalentUnit,
       referenceUnitWeightGrams: target.referenceUnitWeightGrams,

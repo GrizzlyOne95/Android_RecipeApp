@@ -31,10 +31,10 @@ Estimated overall alignment: about 65-75%.
   - full online URL import and browser-style save flow is still incomplete
 - Barcode pantry workflow:
   - manual barcode entry exists
-  - camera scanning and nutrition lookup are not done yet
+  - camera scanning and Open Food Facts lookup now import product nutrition into the pantry editor
 - Pantry nutrition auto-fill:
-  - pantry linking exists
-  - real barcode-driven nutrition import and item image import are still missing
+  - barcode-driven nutrition import now works
+  - item image persistence and richer imported-product media handling are still missing
 - Meal planning:
   - pinned/exportable recipe and saved-meal flows exist
   - richer visual meal-plan folder UX is still missing
@@ -47,8 +47,6 @@ Estimated overall alignment: about 65-75%.
 
 ## Not Yet Done
 
-- Camera barcode scanning
-- Auto-import of nutrition facts from scanned items
 - Auto-import of pantry item pictures
 - Strong online recipe URL import flow
 - OCR screenshot recipe import flow
@@ -60,11 +58,11 @@ Estimated overall alignment: about 65-75%.
 ## Recommended Next Steps
 
 1. Finish Firebase console enablement and validate real Android sign-in plus Firestore push.
-2. Add barcode scanning and nutrition import so pantry capture becomes genuinely fast and useful.
-3. Expand recipe import into URL and OCR flows to cover the “browse and save recipes” goal.
-4. Add cloud pull, merge, and conflict handling after live sync is confirmed.
-5. Build the higher-level planning layer:
+2. Expand recipe import into URL and OCR flows to cover the “browse and save recipes” goal.
+3. Add cloud pull, merge, and conflict handling after live sync is confirmed.
+4. Build the higher-level planning layer:
    meal-plan folders, mixed recipe-plus-ingredient meal assemblies, and macro-aware meal suggestions.
+5. Add pantry item image persistence on top of the new barcode import flow.
 
 ## Why This Order
 

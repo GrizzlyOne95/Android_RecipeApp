@@ -128,6 +128,7 @@ The current repository implementation has moved well beyond the initial shell sl
 - local SQLite-backed persistence through Drift
 - editable recipe CRUD with linked ingredients, nested recipe nutrition, and saved-meal composition
 - pantry CRUD with brand and barcode capture
+- camera barcode scanning with Open Food Facts nutrition import
 - grocery export plus manual quick-add flows
 - food-log entry, daily goal rollups, and saved-meal logging
 - universal quick add from the app shell
@@ -138,7 +139,7 @@ The current repository implementation has moved well beyond the initial shell sl
 
 1. Complete Firebase console enablement and validate live Android sign-in plus Firestore push.
 2. Add cloud pull, merge, and conflict resolution.
-3. Add camera-based barcode scanning and nutrition import.
-4. Expand recipe import from plain text into URL and OCR ingestion.
-5. Improve sync diagnostics, retry handling, and conflict transparency.
+3. Expand recipe import from plain text into URL and OCR ingestion.
+4. Improve sync diagnostics, retry handling, and conflict transparency.
+5. Add pantry item image persistence and richer imported-product media handling.
 6. Add Mac-based iOS sign-in verification once Apple-side setup is available.

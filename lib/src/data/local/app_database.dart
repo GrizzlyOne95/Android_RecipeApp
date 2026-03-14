@@ -63,6 +63,8 @@ class PantryItemsTable extends Table {
   TextColumn get id => text()();
   TextColumn get title => text()();
   TextColumn get quantityLabel => text()();
+  RealColumn get referenceUnitQuantity =>
+      real().withDefault(const Constant(1))();
   TextColumn get referenceUnit =>
       text().withDefault(const Constant('serving'))();
   RealColumn get referenceUnitEquivalentQuantity => real().nullable()();
@@ -211,7 +213,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -265,6 +267,17 @@ class AppDatabase extends _$AppDatabase {
       if (from < 9) {
         await m.createTable(appSettingsTable);
         await m.createTable(syncQueueTable);
+      }
+      if (from < 10) {
+        if (!await _tableHasColumn(
+          'pantry_items_table',
+          'reference_unit_quantity',
+        )) {
+          await m.addColumn(
+            pantryItemsTable,
+            pantryItemsTable.referenceUnitQuantity,
+          );
+        }
       }
     },
   );
@@ -401,6 +414,7 @@ class AppDatabase extends _$AppDatabase {
           id: item.id,
           title: item.name,
           quantityLabel: item.quantityLabel,
+          referenceUnitQuantity: Value(item.referenceUnitQuantity),
           referenceUnit: Value(item.referenceUnit),
           referenceUnitEquivalentQuantity: Value(
             item.referenceUnitEquivalentQuantity,

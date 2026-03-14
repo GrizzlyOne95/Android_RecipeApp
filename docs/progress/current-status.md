@@ -6,7 +6,7 @@ This snapshot reflects the repo state on March 14, 2026.
 
 - The project is currently about 65-75% aligned with the stated Android recipe, pantry, grocery, and nutrition-tracking goals.
 - The core local app foundation is strong.
-- The biggest remaining gaps are smart ingestion, smarter planning, and final cloud validation.
+- The biggest remaining gaps are richer recipe ingestion, smarter planning, and final cloud validation.
 
 ## Built And Working
 
@@ -14,6 +14,7 @@ This snapshot reflects the repo state on March 14, 2026.
 - Drift-backed persistence with seeded data and upgrade-safe migrations
 - Recipe CRUD with linked pantry ingredients, nested recipe nutrition, and saved-meal composition
 - Pantry brand and barcode capture
+- Camera barcode scanning with Open Food Facts nutrition import
 - Universal Quick Add for grocery, pantry, and food-log entry
 - Grocery list generation plus manual add/edit flows
 - Food-log goals, entry logging, and saved-meal logging
@@ -26,6 +27,13 @@ This snapshot reflects the repo state on March 14, 2026.
 - `flutter analyze`
 - `flutter test`
 - `flutter build apk --debug`
+- Android emulator smoke test across Recipes, Grocery, Pantry, Food Log, Quick Add, and pantry barcode import
+
+## Validation Notes
+
+- The pantry barcode import flow was verified end to end on the Android emulator using a real Open Food Facts lookup.
+- The live scanner sheet opens and requests camera permission correctly on emulator.
+- A real Android device is still needed for final live-camera barcode validation because the emulator camera backend did not provide a reliable preview stream.
 
 ## In Progress
 
@@ -53,7 +61,7 @@ This snapshot reflects the repo state on March 14, 2026.
 ## Next Development Slice
 
 1. Validate real Android sign-in and Firestore push once console setup is complete.
-2. Add camera barcode scanning and nutrition import for pantry items.
-3. Expand recipe import to URL and OCR sources.
-4. Add cloud pull, merge, and conflict handling.
-5. Build richer meal-planning and macro suggestion flows on top of the current recipe and food-log data.
+2. Expand recipe import to URL and OCR sources.
+3. Add cloud pull, merge, and conflict handling.
+4. Build richer meal-planning and macro suggestion flows on top of the current recipe and food-log data.
+5. Add pantry item photo import and richer imported-product image handling.
