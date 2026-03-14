@@ -29,6 +29,7 @@ This repository now includes:
 - Nested recipe and saved-meal nutrition flows are wired through the local database.
 - Optional Firebase sync has a real queue, Sync Center UI, Android/iOS app registration, and project-bound config scaffolding for `nutrichef-recipeapp-6d24f`.
 - The remaining Firebase work is console-side enablement plus cloud pull and merge behavior.
+- Overall alignment to the target product vision is currently estimated at about 65-75%.
 
 ## Product Direction
 
@@ -106,12 +107,13 @@ The current draft has passed:
 - [Windows workstation setup](./docs/setup/windows-mobile-workstation.md)
 - [Firebase sync setup](./docs/setup/firebase-sync-setup.md)
 - [Current progress snapshot](./docs/progress/current-status.md)
+- [Goal alignment checklist](./docs/progress/goal-alignment.md)
 - [Product and architecture foundation](./docs/architecture/product-foundation.md)
 
 ## Near-Term Build Plan
 
 1. Finish real Firebase enablement in the console and validate end-to-end Android sign-in plus Firestore push.
-2. Add cloud pull, merge, and conflict handling on top of the Firestore push queue.
-3. Add camera-based barcode scanning and nutrition import.
-4. Expand recipe import from pasted text into URL and OCR screenshot flows.
-5. Add richer sync diagnostics, retries, and conflict visibility.
+2. Add camera barcode scanning plus pantry nutrition auto-import.
+3. Expand recipe import from pasted text into URL and OCR screenshot flows.
+4. Add cloud pull, merge, and conflict handling on top of the Firestore push queue.
+5. Build the smarter planning layer: meal-plan folders, macro-aware suggestions, and richer organization/sorting.

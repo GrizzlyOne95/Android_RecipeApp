@@ -2,6 +2,12 @@
 
 This snapshot reflects the repo state on March 14, 2026.
 
+## Alignment Estimate
+
+- The project is currently about 65-75% aligned with the stated Android recipe, pantry, grocery, and nutrition-tracking goals.
+- The core local app foundation is strong.
+- The biggest remaining gaps are smart ingestion, smarter planning, and final cloud validation.
+
 ## Built And Working
 
 - Local-first app shell with Recipes, Grocery, Pantry, and Food Log tabs
@@ -47,7 +53,7 @@ This snapshot reflects the repo state on March 14, 2026.
 ## Next Development Slice
 
 1. Validate real Android sign-in and Firestore push once console setup is complete.
-2. Add cloud pull, merge, and conflict handling.
-3. Add camera barcode scanning and nutrition import.
-4. Expand recipe import to URL and OCR sources.
-5. Improve sync retry and conflict diagnostics.
+2. Add camera barcode scanning and nutrition import for pantry items.
+3. Expand recipe import to URL and OCR sources.
+4. Add cloud pull, merge, and conflict handling.
+5. Build richer meal-planning and macro suggestion flows on top of the current recipe and food-log data.
