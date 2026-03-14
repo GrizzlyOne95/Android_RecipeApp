@@ -33,6 +33,8 @@ migrate_working_dir/
 /build/
 /coverage/
 /tmp/
+firebase.local.json
+firebase-debug.log
 android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
 

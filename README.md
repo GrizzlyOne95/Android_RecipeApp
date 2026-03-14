@@ -68,7 +68,19 @@ The remaining manual console work is:
 - Enable Cloud Firestore for the project
 - Supply the missing local Firebase API keys and OAuth client ids without committing them
 
-The current build already bakes in the known project and mobile app ids. If you want to override them or fill the remaining OAuth gaps, launch with these `--dart-define` values:
+To keep Git safe across multiple PCs:
+
+1. Copy `firebase.local.example.json` to `firebase.local.json`
+2. Fill in the missing local-only Firebase values on that machine
+3. Run Flutter through the helper script:
+
+```powershell
+pwsh -File .\scripts\flutter_with_local_firebase.ps1 run -d emulator-5554
+```
+
+`firebase.local.json` is gitignored, so each PC can keep its own real values while Git only syncs the codebase.
+
+The current build still accepts these `--dart-define` values directly if you prefer to launch manually:
 
 - `FIREBASE_PROJECT_ID`
 - `FIREBASE_MESSAGING_SENDER_ID`

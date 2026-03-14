@@ -9,6 +9,7 @@ This repo is now linked to Firebase project `nutrichef-recipeapp-6d24f`, but sec
 - iOS app registered: `com.istuart.recipeapp.recipeApp`
 - Repo default project stored in `.firebaserc`
 - The app can accept Firebase values from local `--dart-define` flags or regenerated local config files
+- A safe gitignored template lives at `firebase.local.example.json`
 
 ## Remaining Manual Console Steps
 
@@ -40,6 +41,17 @@ firebase deploy --only firestore:rules,firestore:indexes
 The current build already knows the project id, sender id, storage bucket, Android app id, iOS app id, and iOS bundle id.
 
 Google sign-in will stay disabled until the missing local values above are provided. Keep them local only: use `--dart-define`, untracked Firebase config files, or regenerate config on your own machine.
+
+Recommended two-PC workflow:
+
+1. Commit and sync only repo files through Git
+2. On each PC, copy `firebase.local.example.json` to `firebase.local.json`
+3. Fill in the real local-only values on that machine
+4. Launch with:
+
+```powershell
+pwsh -File .\scripts\flutter_with_local_firebase.ps1 run -d emulator-5554
+```
 
 Example launch override:
 

@@ -1,0 +1,12 @@
+{
+  "FIREBASE_PROJECT_ID": "nutrichef-recipeapp-6d24f",
+  "FIREBASE_MESSAGING_SENDER_ID": "144405192913",
+  "FIREBASE_STORAGE_BUCKET": "nutrichef-recipeapp-6d24f.firebasestorage.app",
+  "FIREBASE_WEB_CLIENT_ID": "",
+  "FIREBASE_ANDROID_API_KEY": "",
+  "FIREBASE_ANDROID_APP_ID": "1:144405192913:android:0de9c5034bc37c52d9e5f0",
+  "FIREBASE_IOS_API_KEY": "",
+  "FIREBASE_IOS_APP_ID": "1:144405192913:ios:fb8a8be93d31a042d9e5f0",
+  "FIREBASE_IOS_CLIENT_ID": "",
+  "FIREBASE_IOS_BUNDLE_ID": "com.istuart.recipeapp.recipeApp"
+}

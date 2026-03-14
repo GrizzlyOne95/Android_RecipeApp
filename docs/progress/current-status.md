@@ -37,6 +37,13 @@ This snapshot reflects the repo state on March 14, 2026.
   - `FIREBASE_IOS_CLIENT_ID`
 - Validate iOS Google sign-in later on a Mac/Xcode machine
 
+## Safe Multi-PC Workflow
+
+- Sync code and docs through Git as usual
+- Keep real Firebase values in a local `firebase.local.json` on each machine
+- Start Firebase-enabled runs with `pwsh -File .\scripts\flutter_with_local_firebase.ps1`
+- Keep downloaded Firebase config files local and untracked
+
 ## Next Development Slice
 
 1. Validate real Android sign-in and Firestore push once console setup is complete.
