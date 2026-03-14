@@ -7,6 +7,22 @@ import '../../core/mock_data.dart';
 import '../../data/repositories/app_repositories.dart';
 import '../shell/app_shell.dart';
 
+Future<FoodLogEntryDraft?> showFoodLogEntryEditorSheet(
+  BuildContext context,
+  FoodLogRepository repository, {
+  FoodLogMealSlot initialMealSlot = FoodLogMealSlot.breakfast,
+}) {
+  return showModalBottomSheet<FoodLogEntryDraft>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (context) => _FoodLogEntryEditorSheet(
+      repository: repository,
+      initialMealSlot: initialMealSlot,
+    ),
+  );
+}
+
 class FoodLogPage extends StatefulWidget {
   const FoodLogPage({super.key});
 
@@ -17,7 +33,7 @@ class FoodLogPage extends StatefulWidget {
 class _FoodLogPageState extends State<FoodLogPage> {
   @override
   Widget build(BuildContext context) {
-    final date = DateFormat('EEEE, MMMM d').format(DateTime(2026, 3, 13));
+    final date = DateFormat('EEEE, MMMM d').format(SeedData.todayDate);
     final repositories = RecipeAppScope.of(context).repositories;
 
     return ShellScaffold(
@@ -29,6 +45,11 @@ class _FoodLogPageState extends State<FoodLogPage> {
         runSpacing: 10,
         children: [
           Chip(label: Text(date)),
+          OutlinedButton.icon(
+            onPressed: () => _openEntryEditor(context, repositories.foodLog),
+            icon: const Icon(Icons.post_add_outlined),
+            label: const Text('Log entry'),
+          ),
           FilledButton.icon(
             onPressed: () => _openMealEditor(
               context,
@@ -56,6 +77,7 @@ class _FoodLogPageState extends State<FoodLogPage> {
                   const FoodLogSnapshot(
                     goals: <DailyGoal>[],
                     savedMeals: <SavedMeal>[],
+                    entries: <FoodLogEntry>[],
                   );
 
               return LayoutBuilder(
@@ -69,19 +91,32 @@ class _FoodLogPageState extends State<FoodLogPage> {
                             Expanded(child: _GoalPanel(goals: data.goals)),
                             const SizedBox(width: 16),
                             Expanded(
-                              child: _SavedMealsPanel(
-                                meals: data.savedMeals,
-                                onEdit: (meal) => _openMealEditor(
-                                  context,
-                                  repositories.foodLog,
-                                  repositories.recipes,
-                                  meal: meal,
-                                ),
-                                onDelete: (meal) => _deleteMeal(
-                                  context,
-                                  repositories.foodLog,
-                                  meal,
-                                ),
+                              child: Column(
+                                children: [
+                                  _DailyEntriesPanel(
+                                    entries: data.entries,
+                                    onDelete: (entry) => _deleteEntry(
+                                      context,
+                                      repositories.foodLog,
+                                      entry,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  _SavedMealsPanel(
+                                    meals: data.savedMeals,
+                                    onEdit: (meal) => _openMealEditor(
+                                      context,
+                                      repositories.foodLog,
+                                      repositories.recipes,
+                                      meal: meal,
+                                    ),
+                                    onDelete: (meal) => _deleteMeal(
+                                      context,
+                                      repositories.foodLog,
+                                      meal,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
@@ -89,6 +124,15 @@ class _FoodLogPageState extends State<FoodLogPage> {
                       : Column(
                           children: [
                             _GoalPanel(goals: data.goals),
+                            const SizedBox(height: 16),
+                            _DailyEntriesPanel(
+                              entries: data.entries,
+                              onDelete: (entry) => _deleteEntry(
+                                context,
+                                repositories.foodLog,
+                                entry,
+                              ),
+                            ),
                             const SizedBox(height: 16),
                             _SavedMealsPanel(
                               meals: data.savedMeals,
@@ -113,6 +157,26 @@ class _FoodLogPageState extends State<FoodLogPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _openEntryEditor(
+    BuildContext context,
+    FoodLogRepository repository,
+  ) async {
+    final result = await showFoodLogEntryEditorSheet(context, repository);
+
+    if (result == null || !context.mounted) {
+      return;
+    }
+
+    await repository.saveFoodLogEntry(result);
+    if (!context.mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Food log entry added.')));
   }
 
   Future<void> _openMealEditor(
@@ -197,6 +261,43 @@ class _FoodLogPageState extends State<FoodLogPage> {
       context,
     ).showSnackBar(SnackBar(content: Text('"${meal.name}" deleted.')));
   }
+
+  Future<void> _deleteEntry(
+    BuildContext context,
+    FoodLogRepository repository,
+    FoodLogEntry entry,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete food log entry?'),
+        content: Text('Remove "${entry.title}" from today\'s log?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !context.mounted) {
+      return;
+    }
+
+    await repository.deleteFoodLogEntry(entry.id);
+    if (!context.mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('"${entry.title}" removed.')));
+  }
 }
 
 class _GoalPanel extends StatelessWidget {
@@ -258,6 +359,141 @@ class _GoalPanel extends StatelessWidget {
             }),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _DailyEntriesPanel extends StatelessWidget {
+  const _DailyEntriesPanel({required this.entries, required this.onDelete});
+
+  final List<FoodLogEntry> entries;
+  final ValueChanged<FoodLogEntry> onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Today\'s Entries', style: theme.textTheme.titleLarge),
+            const SizedBox(height: 8),
+            Text(
+              'Daily goal progress is recalculated from these logged meals and items.',
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 18),
+            if (entries.isEmpty)
+              Text(
+                'No meals logged yet for today.',
+                style: theme.textTheme.bodyMedium,
+              )
+            else
+              ...FoodLogMealSlot.values.map(
+                (slot) => _MealSlotSection(
+                  slot: slot,
+                  entries: entries
+                      .where((entry) => entry.mealSlot == slot)
+                      .toList(growable: false),
+                  onDelete: onDelete,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MealSlotSection extends StatelessWidget {
+  const _MealSlotSection({
+    required this.slot,
+    required this.entries,
+    required this.onDelete,
+  });
+
+  final FoodLogMealSlot slot;
+  final List<FoodLogEntry> entries;
+  final ValueChanged<FoodLogEntry> onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    if (entries.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(slot.label, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 10),
+          ...entries.map(
+            (entry) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _LoggedEntryCard(
+                entry: entry,
+                onDelete: () => onDelete(entry),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LoggedEntryCard extends StatelessWidget {
+  const _LoggedEntryCard({required this.entry, required this.onDelete});
+
+  final FoodLogEntry entry;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final quantityLabel = [
+      if (entry.quantity.trim().isNotEmpty) entry.quantity.trim(),
+      if (entry.unit.trim().isNotEmpty) entry.unit.trim(),
+    ].join(' ');
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0E6D7),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(entry.title, style: theme.textTheme.titleMedium),
+                const SizedBox(height: 6),
+                Text(
+                  '${entry.sourceType.label} • $quantityLabel',
+                  style: theme.textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${entry.nutrition.calories} cal • ${entry.nutrition.protein}g protein • ${entry.nutrition.carbs}g carbs',
+                  style: theme.textTheme.bodyLarge,
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: onDelete,
+            icon: const Icon(Icons.delete_outline),
+          ),
+        ],
       ),
     );
   }
@@ -395,6 +631,321 @@ class _SavedMealCard extends StatelessWidget {
 }
 
 enum _SavedMealAction { edit, delete }
+
+class _FoodLogEntryEditorSheet extends StatefulWidget {
+  const _FoodLogEntryEditorSheet({
+    required this.repository,
+    required this.initialMealSlot,
+  });
+
+  final FoodLogRepository repository;
+  final FoodLogMealSlot initialMealSlot;
+
+  @override
+  State<_FoodLogEntryEditorSheet> createState() =>
+      _FoodLogEntryEditorSheetState();
+}
+
+class _FoodLogEntryEditorSheetState extends State<_FoodLogEntryEditorSheet> {
+  late final TextEditingController _quantityController;
+  late final TextEditingController _unitController;
+  late FoodLogMealSlot _selectedMealSlot;
+  String? _selectedTargetId;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedMealSlot = widget.initialMealSlot;
+    _quantityController = TextEditingController(text: '1');
+    _unitController = TextEditingController();
+    _quantityController.addListener(_handleDraftChanged);
+    _unitController.addListener(_handleDraftChanged);
+  }
+
+  @override
+  void dispose() {
+    _quantityController.removeListener(_handleDraftChanged);
+    _unitController.removeListener(_handleDraftChanged);
+    _quantityController.dispose();
+    _unitController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final viewInsets = MediaQuery.viewInsetsOf(context);
+    final theme = Theme.of(context);
+
+    return StreamBuilder<List<FoodLogEntryTarget>>(
+      stream: widget.repository.watchEntryTargets(),
+      builder: (context, snapshot) {
+        final targets = snapshot.data ?? const <FoodLogEntryTarget>[];
+        final selectedTarget = targets.cast<FoodLogEntryTarget?>().firstWhere(
+          (target) => target?.id == _selectedTargetId,
+          orElse: () => null,
+        );
+        final resolution = selectedTarget == null
+            ? const LinkedQuantityResolution.invalidQuantity()
+            : MeasurementUnits.resolveLinkedReferenceUnits(
+                quantity: MeasurementUnits.parseQuantity(
+                  _quantityController.text,
+                ),
+                ingredientUnit: _unitController.text,
+                referenceUnit: selectedTarget.referenceUnit,
+                referenceUnitEquivalentQuantity:
+                    selectedTarget.referenceUnitEquivalentQuantity,
+                referenceUnitEquivalentUnit:
+                    selectedTarget.referenceUnitEquivalentUnit,
+                referenceUnitWeightGrams:
+                    selectedTarget.referenceUnitWeightGrams,
+              );
+        final previewNutrition = selectedTarget != null && resolution.isResolved
+            ? selectedTarget.nutrition.scale(resolution.referenceUnits!)
+            : NutritionSnapshot.zero;
+
+        return Padding(
+          padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + viewInsets.bottom),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Log today\'s food',
+                            style: theme.textTheme.headlineMedium,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Pick a saved meal, recipe, or pantry item and snapshot what you actually ate.',
+                            style: theme.textTheme.bodyMedium,
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _EditorSection(
+                  title: 'Entry',
+                  child: Column(
+                    children: [
+                      DropdownButtonFormField<FoodLogMealSlot>(
+                        initialValue: _selectedMealSlot,
+                        decoration: const InputDecoration(
+                          labelText: 'Meal slot',
+                        ),
+                        items: FoodLogMealSlot.values
+                            .map(
+                              (slot) => DropdownMenuItem(
+                                value: slot,
+                                child: Text(slot.label),
+                              ),
+                            )
+                            .toList(growable: false),
+                        onChanged: (value) {
+                          if (value == null) {
+                            return;
+                          }
+                          setState(() {
+                            _selectedMealSlot = value;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        key: ValueKey('food-log-target-$_selectedTargetId'),
+                        initialValue: _selectedTargetId,
+                        decoration: const InputDecoration(
+                          labelText: 'Food source',
+                        ),
+                        items: targets
+                            .map(
+                              (target) => DropdownMenuItem<String>(
+                                value: target.id,
+                                child: Text(
+                                  '${target.title} (${target.sourceType.label})',
+                                ),
+                              ),
+                            )
+                            .toList(growable: false),
+                        onChanged: (value) => _setTarget(value, targets),
+                      ),
+                      if (selectedTarget != null) ...[
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            selectedTarget.subtitle,
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _quantityController,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              decoration: const InputDecoration(
+                                labelText: 'Quantity',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _unitController,
+                              decoration: const InputDecoration(
+                                labelText: 'Unit',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _EditorSection(
+                  title: 'Nutrition Snapshot',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _NutritionPreviewGrid(nutrition: previewNutrition),
+                      if (_warningText(selectedTarget, resolution)
+                          case final warning?)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Text(
+                            warning,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: const Color(0xFFB34F3F),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: () => _submit(targets),
+                        child: const Text('Add entry'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _setTarget(String? targetId, List<FoodLogEntryTarget> targets) {
+    final target = targets.cast<FoodLogEntryTarget?>().firstWhere(
+      (item) => item?.id == targetId,
+      orElse: () => null,
+    );
+
+    setState(() {
+      _selectedTargetId = targetId;
+      if (target != null) {
+        _unitController.text = target.referenceUnit;
+      }
+    });
+  }
+
+  String? _warningText(
+    FoodLogEntryTarget? target,
+    LinkedQuantityResolution resolution,
+  ) {
+    if (target == null) {
+      return 'Choose a source to calculate nutrition.';
+    }
+    if (resolution.issue == LinkedQuantityIssue.invalidQuantity) {
+      return 'Quantity must be a positive number.';
+    }
+    if (resolution.issue == LinkedQuantityIssue.incompatibleUnit) {
+      final unitLabel = _unitController.text.trim().isEmpty
+          ? 'blank'
+          : _unitController.text.trim();
+      return 'Unit "$unitLabel" does not convert to ${MeasurementUnits.describeReferenceUnit(referenceUnit: target.referenceUnit, referenceUnitEquivalentQuantity: target.referenceUnitEquivalentQuantity, referenceUnitEquivalentUnit: target.referenceUnitEquivalentUnit, referenceUnitWeightGrams: target.referenceUnitWeightGrams)}.';
+    }
+    return null;
+  }
+
+  void _submit(List<FoodLogEntryTarget> targets) {
+    final target = targets.cast<FoodLogEntryTarget?>().firstWhere(
+      (item) => item?.id == _selectedTargetId,
+      orElse: () => null,
+    );
+    if (target == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Choose a source to log.')));
+      return;
+    }
+
+    final resolution = MeasurementUnits.resolveLinkedReferenceUnits(
+      quantity: MeasurementUnits.parseQuantity(_quantityController.text),
+      ingredientUnit: _unitController.text,
+      referenceUnit: target.referenceUnit,
+      referenceUnitEquivalentQuantity: target.referenceUnitEquivalentQuantity,
+      referenceUnitEquivalentUnit: target.referenceUnitEquivalentUnit,
+      referenceUnitWeightGrams: target.referenceUnitWeightGrams,
+    );
+    if (!resolution.isResolved) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_warningText(target, resolution)!)),
+      );
+      return;
+    }
+
+    Navigator.of(context).pop(
+      FoodLogEntryDraft(
+        date: SeedData.todayDate,
+        mealSlot: _selectedMealSlot,
+        sourceType: target.sourceType,
+        sourceId: target.id,
+        title: target.title,
+        quantity: _quantityController.text.trim(),
+        unit: _unitController.text.trim(),
+        nutrition: target.nutrition.scale(resolution.referenceUnits!),
+      ),
+    );
+  }
+
+  void _handleDraftChanged() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
+  }
+}
 
 class _SavedMealEditorSheet extends StatefulWidget {
   const _SavedMealEditorSheet({
@@ -1302,6 +1853,23 @@ class _MetricField extends StatelessWidget {
       ),
     );
   }
+}
+
+extension on FoodLogMealSlot {
+  String get label => switch (this) {
+    FoodLogMealSlot.breakfast => 'Breakfast',
+    FoodLogMealSlot.lunch => 'Lunch',
+    FoodLogMealSlot.dinner => 'Dinner',
+    FoodLogMealSlot.snack => 'Snack',
+  };
+}
+
+extension on FoodLogEntrySourceType {
+  String get label => switch (this) {
+    FoodLogEntrySourceType.savedMeal => 'Saved meal',
+    FoodLogEntrySourceType.recipe => 'Recipe',
+    FoodLogEntrySourceType.pantryItem => 'Pantry item',
+  };
 }
 
 abstract final class _SavedMealFormatting {

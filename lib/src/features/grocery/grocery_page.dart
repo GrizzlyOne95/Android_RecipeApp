@@ -5,6 +5,18 @@ import '../../core/mock_data.dart';
 import '../../data/repositories/app_repositories.dart';
 import '../shell/app_shell.dart';
 
+Future<GroceryManualItemDraft?> showGroceryQuickAddSheet(
+  BuildContext context, {
+  GroceryManualItemDraft? initialDraft,
+}) {
+  return showModalBottomSheet<GroceryManualItemDraft>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (context) => _QuickAddSheet(initialDraft: initialDraft),
+  );
+}
+
 class GroceryPage extends StatefulWidget {
   const GroceryPage({super.key});
 
@@ -97,12 +109,7 @@ class _GroceryPageState extends State<GroceryPage> {
     BuildContext context,
     GroceryRepository repository,
   ) async {
-    final result = await showModalBottomSheet<GroceryManualItemDraft>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (context) => const _QuickAddSheet(),
-    );
+    final result = await showGroceryQuickAddSheet(context);
 
     if (result == null || !context.mounted) {
       return;
@@ -209,7 +216,9 @@ class _GrocerySectionCard extends StatelessWidget {
 }
 
 class _QuickAddSheet extends StatefulWidget {
-  const _QuickAddSheet();
+  const _QuickAddSheet({this.initialDraft});
+
+  final GroceryManualItemDraft? initialDraft;
 
   @override
   State<_QuickAddSheet> createState() => _QuickAddSheetState();
@@ -225,14 +234,35 @@ class _QuickAddSheetState extends State<_QuickAddSheet> {
   @override
   void initState() {
     super.initState();
-    _sectionController = TextEditingController(text: 'Quick Add');
-    _labelController = TextEditingController();
-    _quantityController = TextEditingController();
-    _unitController = TextEditingController();
+    final draft =
+        widget.initialDraft ??
+        const GroceryManualItemDraft(
+          sectionTitle: 'Quick Add',
+          label: '',
+          quantity: '',
+          unit: '',
+        );
+    _sectionController = TextEditingController(text: draft.sectionTitle);
+    _labelController = TextEditingController(text: draft.label);
+    _quantityController = TextEditingController(text: draft.quantity);
+    _unitController = TextEditingController(text: draft.unit);
+    for (final controller in _controllers) {
+      controller.addListener(_handleDraftChanged);
+    }
   }
+
+  Iterable<TextEditingController> get _controllers => [
+    _sectionController,
+    _labelController,
+    _quantityController,
+    _unitController,
+  ];
 
   @override
   void dispose() {
+    for (final controller in _controllers) {
+      controller.removeListener(_handleDraftChanged);
+    }
     _sectionController.dispose();
     _labelController.dispose();
     _quantityController.dispose();
@@ -281,6 +311,7 @@ class _QuickAddSheetState extends State<_QuickAddSheet> {
               _QuickAddSection(
                 title: 'Item',
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     TextFormField(
                       controller: _sectionController,
@@ -288,6 +319,26 @@ class _QuickAddSheetState extends State<_QuickAddSheet> {
                         labelText: 'Section',
                         hintText: 'Quick Add, Produce, Pantry Refill',
                       ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final section in const [
+                          'Quick Add',
+                          'Produce',
+                          'Dairy',
+                          'Pantry',
+                          'Frozen',
+                        ])
+                          ActionChip(
+                            label: Text(section),
+                            onPressed: () {
+                              _sectionController.text = section;
+                            },
+                          ),
+                      ],
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
@@ -317,6 +368,14 @@ class _QuickAddSheetState extends State<_QuickAddSheet> {
                           ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        _previewLabel,
+                        style: theme.textTheme.bodySmall,
+                      ),
                     ),
                   ],
                 ),
@@ -351,6 +410,30 @@ class _QuickAddSheetState extends State<_QuickAddSheet> {
       return 'Required';
     }
     return null;
+  }
+
+  String get _previewLabel {
+    final detail = [
+      if (_quantityController.text.trim().isNotEmpty)
+        _quantityController.text.trim(),
+      if (_unitController.text.trim().isNotEmpty) _unitController.text.trim(),
+    ].join(' ');
+    final item = _labelController.text.trim().isEmpty
+        ? 'item'
+        : _labelController.text.trim();
+    final section = _sectionController.text.trim().isEmpty
+        ? 'Quick Add'
+        : _sectionController.text.trim();
+    return detail.isEmpty
+        ? 'Will save to $section as "$item".'
+        : 'Will save to $section as "$item" ($detail).';
+  }
+
+  void _handleDraftChanged() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
   }
 
   void _submit() {

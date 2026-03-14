@@ -1,32 +1,712 @@
 import 'dart:async';
 
-import 'package:drift/drift.dart' show OrderingTerm, Value;
+import 'package:drift/drift.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/measurement_units.dart';
 import '../../core/mock_data.dart';
+import '../../core/sync_models.dart';
 import '../local/app_database.dart';
+import '../sync/cloud_sync_gateway.dart';
 
 class AppRepositories {
-  AppRepositories(this.database)
-    : recipes = RecipesRepository(database),
-      pantry = PantryRepository(database),
-      grocery = GroceryRepository(database),
-      foodLog = FoodLogRepository(database);
+  factory AppRepositories(
+    AppDatabase database, {
+    CloudSyncGateway? cloudSyncGateway,
+  }) {
+    final sync = SyncRepository(database, cloudGateway: cloudSyncGateway);
+    return AppRepositories._(
+      database: database,
+      sync: sync,
+      recipes: RecipesRepository(database, sync),
+      pantry: PantryRepository(database, sync),
+      grocery: GroceryRepository(database, sync),
+      foodLog: FoodLogRepository(database, sync),
+    );
+  }
+
+  AppRepositories._({
+    required this.database,
+    required this.sync,
+    required this.recipes,
+    required this.pantry,
+    required this.grocery,
+    required this.foodLog,
+  });
 
   final AppDatabase database;
+  final SyncRepository sync;
   final RecipesRepository recipes;
   final PantryRepository pantry;
   final GroceryRepository grocery;
   final FoodLogRepository foodLog;
 
-  Future<void> initialize() => database.seedIfEmpty();
+  Future<void> initialize() async {
+    await database.seedIfEmpty();
+    await sync.initialize();
+  }
+}
+
+class SyncRepository {
+  SyncRepository(this._database, {CloudSyncGateway? cloudGateway})
+    : _cloudGateway = cloudGateway ?? FirebaseCloudSyncGateway();
+
+  final AppDatabase _database;
+  final CloudSyncGateway _cloudGateway;
+
+  static const _authStateKey = 'sync.auth_state';
+  static const _providerKey = 'sync.provider';
+  static const _accountEmailKey = 'sync.account_email';
+  static const _accountIdKey = 'sync.account_id';
+  static const _connectedAtKey = 'sync.connected_at';
+  static const _lastSyncedAtKey = 'sync.last_synced_at';
+  static const _lastErrorKey = 'sync.last_error';
+  static const _syncStateKey = 'sync.state';
+  static const _generatedStateSectionId = '__grocery_generated_state__';
+
+  Future<void> initialize() async {
+    await _cloudGateway.initialize();
+    await _persistSession(await _cloudGateway.currentSession());
+  }
+
+  Stream<SyncStatus> watchStatus() {
+    final settingsQuery = _database.select(_database.appSettingsTable).watch();
+    final queueQuery = (_database.select(
+      _database.syncQueueTable,
+    )..orderBy([(table) => OrderingTerm.desc(table.changedAt)])).watch();
+
+    return settingsQuery.combineLatest(queueQuery, (settings, queueRows) {
+      final settingsByKey = {for (final row in settings) row.key: row.value};
+      final authState = _authStateFromValue(settingsByKey[_authStateKey]);
+      final countsByType = <SyncEntityType, int>{};
+      DateTime? lastLocalChangeAt;
+
+      for (final row in queueRows) {
+        final entityType = _entityTypeFromName(row.entityType);
+        countsByType.update(
+          entityType,
+          (count) => count + 1,
+          ifAbsent: () => 1,
+        );
+        if (lastLocalChangeAt == null ||
+            row.changedAt.isAfter(lastLocalChangeAt)) {
+          lastLocalChangeAt = row.changedAt;
+        }
+      }
+
+      final pendingItems =
+          countsByType.entries
+              .map(
+                (entry) =>
+                    SyncEntityCount(entityType: entry.key, count: entry.value),
+              )
+              .toList(growable: true)
+            ..sort((left, right) {
+              final byCount = right.count.compareTo(left.count);
+              if (byCount != 0) {
+                return byCount;
+              }
+              return left.entityType.label.compareTo(right.entityType.label);
+            });
+
+      return SyncStatus(
+        authState: authState,
+        isCloudConfigured: _cloudGateway.availability.isAvailable,
+        cloudStatusMessage: _cloudGateway.availability.message,
+        providerLabel: settingsByKey[_providerKey],
+        accountEmail: settingsByKey[_accountEmailKey],
+        accountId: settingsByKey[_accountIdKey],
+        connectedAt: _dateTimeFromString(settingsByKey[_connectedAtKey]),
+        lastLocalChangeAt: lastLocalChangeAt,
+        lastSyncedAt: _dateTimeFromString(settingsByKey[_lastSyncedAtKey]),
+        lastErrorMessage: _normalizedOptionalText(settingsByKey[_lastErrorKey]),
+        isSyncing: settingsByKey[_syncStateKey] == 'syncing',
+        pendingItems: pendingItems,
+      );
+    });
+  }
+
+  Stream<List<SyncQueueItem>> watchQueueItems() {
+    return (_database.select(
+      _database.syncQueueTable,
+    )..orderBy([(table) => OrderingTerm.desc(table.changedAt)])).watch().map(
+      (rows) => rows
+          .map(
+            (row) => SyncQueueItem(
+              entityType: _entityTypeFromName(row.entityType),
+              entityId: row.entityId,
+              changeType: _changeTypeFromName(row.changeType),
+              changedAt: row.changedAt,
+              displayLabel: row.displayLabel,
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+
+  Future<SyncActionResult> connectGoogleAccount() async {
+    await _cloudGateway.initialize();
+    if (!_cloudGateway.availability.isAvailable) {
+      return _fail(_cloudGateway.availability.message);
+    }
+
+    try {
+      final session = await _cloudGateway.signInWithGoogle();
+      await _persistSession(session);
+      final syncResult = await syncNow();
+      if (!syncResult.isSuccess) {
+        return SyncActionResult(
+          isSuccess: true,
+          message: 'Google account connected. ${syncResult.message}',
+        );
+      }
+      return const SyncActionResult(
+        isSuccess: true,
+        message: 'Google account connected and pending changes synced.',
+      );
+    } on Object catch (error) {
+      await _persistSession(
+        const CloudSyncSession(isConfigured: false, providerLabel: 'Google'),
+      );
+      return _fail(_syncErrorFrom(error));
+    }
+  }
+
+  Future<SyncActionResult> disconnect() async {
+    await _cloudGateway.signOut();
+    await _clearSyncError();
+    await _database.transaction(() async {
+      await _deleteSetting(_authStateKey);
+      await _deleteSetting(_providerKey);
+      await _deleteSetting(_accountEmailKey);
+      await _deleteSetting(_accountIdKey);
+      await _deleteSetting(_connectedAtKey);
+    });
+    return const SyncActionResult(
+      isSuccess: true,
+      message: 'Google account disconnected. Local data stays on device.',
+    );
+  }
+
+  Future<SyncActionResult> syncNow() async {
+    await _cloudGateway.initialize();
+    if (!_cloudGateway.availability.isAvailable) {
+      return _fail(_cloudGateway.availability.message);
+    }
+
+    final session = await _cloudGateway.currentSession();
+    await _persistSession(session);
+    if (!session.isConnected ||
+        session.userId == null ||
+        session.email == null) {
+      return _fail('Connect a Google account before running cloud sync.');
+    }
+
+    await _setSyncing(true);
+    try {
+      final queueRows = await (_database.select(
+        _database.syncQueueTable,
+      )..orderBy([(table) => OrderingTerm(expression: table.changedAt)])).get();
+
+      final mutations = <CloudSyncMutation>[];
+      for (final row in queueRows) {
+        mutations.add(await _buildMutation(row));
+      }
+
+      await _cloudGateway.applyMutations(
+        userId: session.userId!,
+        accountEmail: session.email!,
+        mutations: mutations,
+      );
+      await _clearQueueEntries(queueRows);
+
+      final now = DateTime.now();
+      await _upsertSetting(_lastSyncedAtKey, now.toIso8601String(), now);
+      await _clearSyncError();
+
+      return SyncActionResult(
+        isSuccess: true,
+        message: mutations.isEmpty
+            ? 'Cloud sync is already current.'
+            : 'Synced ${mutations.length} change${mutations.length == 1 ? '' : 's'} to Firestore.',
+      );
+    } on Object catch (error) {
+      return _fail(_syncErrorFrom(error));
+    } finally {
+      await _setSyncing(false);
+    }
+  }
+
+  Future<void> recordChange({
+    required SyncEntityType entityType,
+    required String entityId,
+    required SyncChangeType changeType,
+    String? displayLabel,
+  }) {
+    final normalizedId = entityId.trim();
+    if (normalizedId.isEmpty) {
+      return Future.value();
+    }
+
+    return _database
+        .into(_database.syncQueueTable)
+        .insertOnConflictUpdate(
+          SyncQueueTableCompanion.insert(
+            entityType: entityType.name,
+            entityId: normalizedId,
+            changeType: changeType.name,
+            changedAt: DateTime.now(),
+            displayLabel: Value(_normalizedOptionalText(displayLabel)),
+          ),
+        );
+  }
+
+  Future<CloudSyncMutation> _buildMutation(SyncQueueTableData row) async {
+    final entityType = _entityTypeFromName(row.entityType);
+    final changeType = _changeTypeFromName(row.changeType);
+
+    if (changeType == SyncChangeType.delete) {
+      return CloudSyncMutation(
+        entityType: entityType,
+        entityId: row.entityId,
+        changeType: changeType,
+        changedAt: row.changedAt,
+      );
+    }
+
+    return switch (entityType) {
+      SyncEntityType.recipe => _buildRecipeMutation(row),
+      SyncEntityType.pantryItem => _buildPantryMutation(row),
+      SyncEntityType.groceryItem => _buildGroceryMutation(row),
+      SyncEntityType.savedMeal => _buildSavedMealMutation(row),
+      SyncEntityType.foodLogEntry => _buildFoodLogMutation(row),
+    };
+  }
+
+  Future<CloudSyncMutation> _buildRecipeMutation(SyncQueueTableData row) async {
+    final recipe = await (_database.select(
+      _database.recipes,
+    )..where((table) => table.id.equals(row.entityId))).getSingleOrNull();
+    if (recipe == null) {
+      return _missingEntityDelete(row, SyncEntityType.recipe);
+    }
+
+    final tags =
+        await (_database.select(_database.recipeTags)
+              ..where((table) => table.recipeId.equals(recipe.id))
+              ..orderBy([(table) => OrderingTerm(expression: table.position)]))
+            .get();
+    final ingredients =
+        await (_database.select(_database.recipeIngredients)
+              ..where((table) => table.recipeId.equals(recipe.id))
+              ..orderBy([(table) => OrderingTerm(expression: table.position)]))
+            .get();
+    final directions =
+        await (_database.select(_database.recipeDirections)
+              ..where((table) => table.recipeId.equals(recipe.id))
+              ..orderBy([(table) => OrderingTerm(expression: table.position)]))
+            .get();
+
+    return CloudSyncMutation(
+      entityType: SyncEntityType.recipe,
+      entityId: recipe.id,
+      changeType: SyncChangeType.upsert,
+      changedAt: row.changedAt,
+      payload: {
+        'id': recipe.id,
+        'title': recipe.title,
+        'versionLabel': recipe.versionLabel,
+        'notes': recipe.notes,
+        'servings': recipe.servings,
+        'isPinned': recipe.isPinned,
+        'sortCalories': recipe.sortCalories,
+        'nutrition': _nutritionPayload(
+          calories: recipe.calories,
+          protein: recipe.protein,
+          carbs: recipe.carbs,
+          fat: recipe.fat,
+          fiber: recipe.fiber,
+          sodium: recipe.sodium,
+          sugar: recipe.sugar,
+        ),
+        'createdAt': recipe.createdAt.toIso8601String(),
+        'updatedAt': recipe.updatedAt.toIso8601String(),
+        'tags': [
+          for (final tag in tags)
+            {'label': tag.label, 'position': tag.position},
+        ],
+        'ingredients': [
+          for (final ingredient in ingredients)
+            {
+              'position': ingredient.position,
+              'quantity': ingredient.quantity,
+              'unit': ingredient.unit,
+              'item': ingredient.item,
+              'preparation': ingredient.preparation,
+              'ingredientType': ingredient.ingredientType,
+              'linkedPantryItemId': ingredient.linkedPantryItemId,
+              'linkedRecipeId': ingredient.linkedRecipeId,
+            },
+        ],
+        'directions': [
+          for (final direction in directions)
+            {
+              'position': direction.position,
+              'instruction': direction.instruction,
+            },
+        ],
+      },
+    );
+  }
+
+  Future<CloudSyncMutation> _buildPantryMutation(SyncQueueTableData row) async {
+    final item = await (_database.select(
+      _database.pantryItemsTable,
+    )..where((table) => table.id.equals(row.entityId))).getSingleOrNull();
+    if (item == null) {
+      return _missingEntityDelete(row, SyncEntityType.pantryItem);
+    }
+
+    return CloudSyncMutation(
+      entityType: SyncEntityType.pantryItem,
+      entityId: item.id,
+      changeType: SyncChangeType.upsert,
+      changedAt: row.changedAt,
+      payload: {
+        'id': item.id,
+        'title': item.title,
+        'quantityLabel': item.quantityLabel,
+        'referenceUnit': item.referenceUnit,
+        'referenceUnitEquivalentQuantity': item.referenceUnitEquivalentQuantity,
+        'referenceUnitEquivalentUnit': item.referenceUnitEquivalentUnit,
+        'referenceUnitWeightGrams': item.referenceUnitWeightGrams,
+        'source': item.source,
+        'accentHex': item.accentHex,
+        'barcode': item.barcode,
+        'brand': item.brand,
+        'nutrition': _nutritionPayload(
+          calories: item.calories,
+          protein: item.protein,
+          carbs: item.carbs,
+          fat: item.fat,
+          fiber: item.fiber,
+          sodium: item.sodium,
+          sugar: item.sugar,
+        ),
+        'createdAt': item.createdAt.toIso8601String(),
+      },
+    );
+  }
+
+  Future<CloudSyncMutation> _buildGroceryMutation(
+    SyncQueueTableData row,
+  ) async {
+    final manualId = int.tryParse(row.entityId);
+    if (manualId != null) {
+      final item = await (_database.select(
+        _database.groceryItemsTable,
+      )..where((table) => table.id.equals(manualId))).getSingleOrNull();
+      if (item == null) {
+        return _missingEntityDelete(row, SyncEntityType.groceryItem);
+      }
+      final section = await (_database.select(
+        _database.grocerySectionsTable,
+      )..where((table) => table.id.equals(item.sectionId))).getSingleOrNull();
+
+      return CloudSyncMutation(
+        entityType: SyncEntityType.groceryItem,
+        entityId: row.entityId,
+        changeType: SyncChangeType.upsert,
+        changedAt: row.changedAt,
+        payload: {
+          'id': item.id.toString(),
+          'sectionId': item.sectionId,
+          'sectionTitle': section?.title,
+          'label': item.label,
+          'position': item.position,
+          'isChecked': item.isChecked,
+          'isGeneratedState': false,
+        },
+      );
+    }
+
+    final generatedState =
+        await (_database.select(_database.groceryItemsTable)..where(
+              (table) =>
+                  table.sectionId.equals(_generatedStateSectionId) &
+                  table.label.equals(row.entityId),
+            ))
+            .getSingleOrNull();
+    if (generatedState == null) {
+      return _missingEntityDelete(row, SyncEntityType.groceryItem);
+    }
+
+    return CloudSyncMutation(
+      entityType: SyncEntityType.groceryItem,
+      entityId: row.entityId,
+      changeType: SyncChangeType.upsert,
+      changedAt: row.changedAt,
+      payload: {
+        'id': row.entityId,
+        'sectionId': generatedState.sectionId,
+        'sectionTitle': 'Generated State',
+        'label': generatedState.label,
+        'position': generatedState.position,
+        'isChecked': generatedState.isChecked,
+        'isGeneratedState': true,
+      },
+    );
+  }
+
+  Future<CloudSyncMutation> _buildSavedMealMutation(
+    SyncQueueTableData row,
+  ) async {
+    final meal = await (_database.select(
+      _database.savedMealsTable,
+    )..where((table) => table.id.equals(row.entityId))).getSingleOrNull();
+    if (meal == null) {
+      return _missingEntityDelete(row, SyncEntityType.savedMeal);
+    }
+
+    final adjustments =
+        await (_database.select(_database.savedMealAdjustments)
+              ..where((table) => table.mealId.equals(meal.id))
+              ..orderBy([(table) => OrderingTerm(expression: table.position)]))
+            .get();
+    final components =
+        await (_database.select(_database.savedMealComponents)
+              ..where((table) => table.mealId.equals(meal.id))
+              ..orderBy([(table) => OrderingTerm(expression: table.position)]))
+            .get();
+
+    return CloudSyncMutation(
+      entityType: SyncEntityType.savedMeal,
+      entityId: meal.id,
+      changeType: SyncChangeType.upsert,
+      changedAt: row.changedAt,
+      payload: {
+        'id': meal.id,
+        'title': meal.title,
+        'nutrition': _nutritionPayload(
+          calories: meal.calories,
+          protein: meal.protein,
+          carbs: meal.carbs,
+          fat: meal.fat,
+          fiber: meal.fiber,
+          sodium: meal.sodium,
+          sugar: meal.sugar,
+        ),
+        'createdAt': meal.createdAt.toIso8601String(),
+        'adjustments': [
+          for (final adjustment in adjustments)
+            {'label': adjustment.label, 'position': adjustment.position},
+        ],
+        'components': [
+          for (final component in components)
+            {
+              'position': component.position,
+              'quantity': component.quantity,
+              'unit': component.unit,
+              'item': component.item,
+              'componentType': component.componentType,
+              'linkedPantryItemId': component.linkedPantryItemId,
+              'linkedRecipeId': component.linkedRecipeId,
+            },
+        ],
+      },
+    );
+  }
+
+  Future<CloudSyncMutation> _buildFoodLogMutation(
+    SyncQueueTableData row,
+  ) async {
+    final entry = await (_database.select(
+      _database.foodLogEntriesTable,
+    )..where((table) => table.id.equals(row.entityId))).getSingleOrNull();
+    if (entry == null) {
+      return _missingEntityDelete(row, SyncEntityType.foodLogEntry);
+    }
+
+    return CloudSyncMutation(
+      entityType: SyncEntityType.foodLogEntry,
+      entityId: entry.id,
+      changeType: SyncChangeType.upsert,
+      changedAt: row.changedAt,
+      payload: {
+        'id': entry.id,
+        'entryDate': entry.entryDate,
+        'mealSlot': entry.mealSlot,
+        'sourceType': entry.sourceType,
+        'sourceId': entry.sourceId,
+        'title': entry.title,
+        'quantity': entry.quantity,
+        'unit': entry.unit,
+        'nutrition': _nutritionPayload(
+          calories: entry.calories,
+          protein: entry.protein,
+          carbs: entry.carbs,
+          fat: entry.fat,
+          fiber: entry.fiber,
+          sodium: entry.sodium,
+          sugar: entry.sugar,
+        ),
+        'createdAt': entry.createdAt.toIso8601String(),
+      },
+    );
+  }
+
+  CloudSyncMutation _missingEntityDelete(
+    SyncQueueTableData row,
+    SyncEntityType entityType,
+  ) {
+    return CloudSyncMutation(
+      entityType: entityType,
+      entityId: row.entityId,
+      changeType: SyncChangeType.delete,
+      changedAt: row.changedAt,
+    );
+  }
+
+  Map<String, Object?> _nutritionPayload({
+    required int calories,
+    required int protein,
+    required int carbs,
+    required int fat,
+    required int fiber,
+    required int sodium,
+    required int sugar,
+  }) {
+    return {
+      'calories': calories,
+      'protein': protein,
+      'carbs': carbs,
+      'fat': fat,
+      'fiber': fiber,
+      'sodium': sodium,
+      'sugar': sugar,
+    };
+  }
+
+  Future<void> _clearQueueEntries(List<SyncQueueTableData> rows) async {
+    for (final row in rows) {
+      await (_database.delete(_database.syncQueueTable)..where(
+            (table) =>
+                table.entityType.equals(row.entityType) &
+                table.entityId.equals(row.entityId),
+          ))
+          .go();
+    }
+  }
+
+  Future<SyncActionResult> _fail(String message) async {
+    final normalizedMessage =
+        _normalizedOptionalText(message) ?? 'Sync failed.';
+    await _upsertSetting(_lastErrorKey, normalizedMessage, DateTime.now());
+    return SyncActionResult(isSuccess: false, message: normalizedMessage);
+  }
+
+  Future<void> _persistSession(CloudSyncSession session) async {
+    final now = DateTime.now();
+    if (!session.isConnected ||
+        session.userId == null ||
+        session.email == null) {
+      await _database.transaction(() async {
+        await _deleteSetting(_authStateKey);
+        await _deleteSetting(_providerKey);
+        await _deleteSetting(_accountEmailKey);
+        await _deleteSetting(_accountIdKey);
+        await _deleteSetting(_connectedAtKey);
+      });
+      return;
+    }
+
+    await _database.transaction(() async {
+      await _upsertSetting(_authStateKey, SyncAuthState.connected.name, now);
+      await _upsertSetting(_providerKey, session.providerLabel.trim(), now);
+      await _upsertSetting(_accountEmailKey, session.email!.trim(), now);
+      await _upsertSetting(_accountIdKey, session.userId!.trim(), now);
+      await _upsertSetting(_connectedAtKey, now.toIso8601String(), now);
+    });
+  }
+
+  Future<void> _setSyncing(bool isSyncing) {
+    final value = isSyncing ? 'syncing' : 'idle';
+    return _upsertSetting(_syncStateKey, value, DateTime.now());
+  }
+
+  Future<void> _clearSyncError() {
+    return _upsertSetting(_lastErrorKey, null, DateTime.now());
+  }
+
+  Future<void> _upsertSetting(String key, String? value, DateTime updatedAt) {
+    return _database
+        .into(_database.appSettingsTable)
+        .insertOnConflictUpdate(
+          AppSettingsTableCompanion.insert(
+            key: key,
+            value: Value(value),
+            updatedAt: updatedAt,
+          ),
+        );
+  }
+
+  Future<void> _deleteSetting(String key) {
+    return (_database.delete(
+      _database.appSettingsTable,
+    )..where((table) => table.key.equals(key))).go();
+  }
+
+  SyncAuthState _authStateFromValue(String? value) {
+    return switch (value) {
+      'connected' => SyncAuthState.connected,
+      _ => SyncAuthState.signedOut,
+    };
+  }
+
+  SyncEntityType _entityTypeFromName(String value) {
+    return SyncEntityType.values.firstWhere(
+      (type) => type.name == value,
+      orElse: () => SyncEntityType.recipe,
+    );
+  }
+
+  SyncChangeType _changeTypeFromName(String value) {
+    return SyncChangeType.values.firstWhere(
+      (type) => type.name == value,
+      orElse: () => SyncChangeType.upsert,
+    );
+  }
+
+  DateTime? _dateTimeFromString(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+    return DateTime.tryParse(value);
+  }
+
+  String _syncErrorFrom(Object error) {
+    final message = error.toString().trim();
+    if (message.startsWith('Exception: ')) {
+      return message.substring('Exception: '.length);
+    }
+    if (message.startsWith('StateError: ')) {
+      return message.substring('StateError: '.length);
+    }
+    return message;
+  }
+
+  String? _normalizedOptionalText(String? value) {
+    final trimmed = value?.trim() ?? '';
+    return trimmed.isEmpty ? null : trimmed;
+  }
 }
 
 class RecipesRepository {
-  RecipesRepository(this._database);
+  RecipesRepository(this._database, [SyncRepository? syncRepository])
+    : _sync = syncRepository ?? SyncRepository(_database);
 
   final AppDatabase _database;
+  final SyncRepository _sync;
 
   Stream<List<RecipeSummary>> watchRecipes({
     RecipeSortOrder sortOrder = RecipeSortOrder.caloriesLowToHigh,
@@ -296,12 +976,24 @@ class RecipesRepository {
             );
       }
     });
+
+    await _sync.recordChange(
+      entityType: SyncEntityType.recipe,
+      entityId: recipeId,
+      changeType: SyncChangeType.upsert,
+      displayLabel: draft.name.trim(),
+    );
   }
 
-  Future<void> deleteRecipe(String id) {
-    return (_database.delete(
+  Future<void> deleteRecipe(String id) async {
+    await (_database.delete(
       _database.recipes,
     )..where((table) => table.id.equals(id))).go();
+    await _sync.recordChange(
+      entityType: SyncEntityType.recipe,
+      entityId: id,
+      changeType: SyncChangeType.delete,
+    );
   }
 
   String? _normalizedVersionLabel(String value) {
@@ -662,9 +1354,11 @@ class _SortableRecipeSummary {
 }
 
 class PantryRepository {
-  PantryRepository(this._database);
+  PantryRepository(this._database, [SyncRepository? syncRepository])
+    : _sync = syncRepository ?? SyncRepository(_database);
 
   final AppDatabase _database;
+  final SyncRepository _sync;
 
   Stream<List<PantryItem>> watchPantryItems() {
     return (_database.select(
@@ -692,6 +1386,8 @@ class PantryRepository {
                 sugar: item.sugar,
               ),
               accent: Color(item.accentHex),
+              barcode: item.barcode,
+              brand: item.brand,
             ),
           )
           .toList(growable: false),
@@ -706,6 +1402,8 @@ class PantryRepository {
         existingId ?? 'pantry_${DateTime.now().microsecondsSinceEpoch}';
     final normalizedEquivalentQuantity = draft.referenceUnitEquivalentQuantity;
     final normalizedEquivalentUnit = draft.referenceUnitEquivalentUnit?.trim();
+    final normalizedBarcode = _normalizedOptionalText(draft.barcode);
+    final normalizedBrand = _normalizedOptionalText(draft.brand);
     final existingCreatedAt = existingId == null
         ? null
         : await (_database.select(_database.pantryItemsTable)
@@ -741,8 +1439,8 @@ class PantryRepository {
             ),
             source: draft.source.trim(),
             accentHex: draft.accent.toARGB32(),
-            barcode: const Value(null),
-            brand: const Value(null),
+            barcode: Value(normalizedBarcode),
+            brand: Value(normalizedBrand),
             calories: draft.nutrition.calories,
             protein: draft.nutrition.protein,
             carbs: draft.nutrition.carbs,
@@ -753,19 +1451,38 @@ class PantryRepository {
             createdAt: existingCreatedAt ?? DateTime.now(),
           ),
         );
+
+    await _sync.recordChange(
+      entityType: SyncEntityType.pantryItem,
+      entityId: itemId,
+      changeType: SyncChangeType.upsert,
+      displayLabel: draft.name.trim(),
+    );
   }
 
-  Future<void> deletePantryItem(String id) {
-    return (_database.delete(
+  Future<void> deletePantryItem(String id) async {
+    await (_database.delete(
       _database.pantryItemsTable,
     )..where((table) => table.id.equals(id))).go();
+    await _sync.recordChange(
+      entityType: SyncEntityType.pantryItem,
+      entityId: id,
+      changeType: SyncChangeType.delete,
+    );
+  }
+
+  String? _normalizedOptionalText(String? value) {
+    final trimmed = value?.trim() ?? '';
+    return trimmed.isEmpty ? null : trimmed;
   }
 }
 
 class GroceryRepository {
-  GroceryRepository(this._database);
+  GroceryRepository(this._database, [SyncRepository? syncRepository])
+    : _sync = syncRepository ?? SyncRepository(_database);
 
   final AppDatabase _database;
+  final SyncRepository _sync;
   static const _settingsSectionId = '__grocery_settings__';
   static const _generatedStateSectionId = '__grocery_generated_state__';
   static const _settingsSectionTitle = '__Grocery Settings__';
@@ -996,7 +1713,7 @@ class GroceryRepository {
           (section) =>
               section != null &&
               !_isHiddenSection(section.id) &&
-              section?.title.toLowerCase() ==
+              section.title.toLowerCase() ==
                   normalizedSectionTitle.toLowerCase(),
           orElse: () => null,
         );
@@ -1018,7 +1735,7 @@ class GroceryRepository {
     final currentItems = await (_database.select(
       _database.groceryItemsTable,
     )..where((table) => table.sectionId.equals(sectionId))).get();
-    await _database
+    final insertedId = await _database
         .into(_database.groceryItemsTable)
         .insert(
           GroceryItemsTableCompanion.insert(
@@ -1031,26 +1748,50 @@ class GroceryRepository {
             position: currentItems.length,
           ),
         );
+    await _sync.recordChange(
+      entityType: SyncEntityType.groceryItem,
+      entityId: insertedId.toString(),
+      changeType: SyncChangeType.upsert,
+      displayLabel: draft.label.trim(),
+    );
   }
 
-  Future<void> deleteManualItem(int id) {
-    return (_database.delete(
+  Future<void> deleteManualItem(int id) async {
+    await (_database.delete(
       _database.groceryItemsTable,
     )..where((table) => table.id.equals(id))).go();
+    await _sync.recordChange(
+      entityType: SyncEntityType.groceryItem,
+      entityId: id.toString(),
+      changeType: SyncChangeType.delete,
+    );
   }
 
-  Future<void> toggleItemChecked(GroceryListItem item, bool isChecked) {
+  Future<void> toggleItemChecked(GroceryListItem item, bool isChecked) async {
     if (item.isGenerated) {
-      return _toggleGeneratedItemChecked(item, isChecked);
+      await _toggleGeneratedItemChecked(item, isChecked);
+      await _sync.recordChange(
+        entityType: SyncEntityType.groceryItem,
+        entityId: item.key,
+        changeType: SyncChangeType.upsert,
+        displayLabel: item.label,
+      );
+      return;
     }
 
     final manualId = int.tryParse(item.key.replaceFirst('manual:', ''));
     if (manualId == null) {
-      return Future.value();
+      return;
     }
-    return (_database.update(_database.groceryItemsTable)
+    await (_database.update(_database.groceryItemsTable)
           ..where((table) => table.id.equals(manualId)))
         .write(GroceryItemsTableCompanion(isChecked: Value(isChecked)));
+    await _sync.recordChange(
+      entityType: SyncEntityType.groceryItem,
+      entityId: manualId.toString(),
+      changeType: SyncChangeType.upsert,
+      displayLabel: item.label,
+    );
   }
 
   GrocerySection _buildPinnedRecipesSection({
@@ -1574,15 +2315,14 @@ class GroceryRepository {
 }
 
 class FoodLogRepository {
-  FoodLogRepository(this._database);
+  FoodLogRepository(this._database, [SyncRepository? syncRepository])
+    : _sync = syncRepository ?? SyncRepository(_database);
 
   final AppDatabase _database;
+  final SyncRepository _sync;
 
-  Stream<FoodLogSnapshot> watchSnapshot() {
+  Stream<List<SavedMeal>> watchSavedMeals() {
     final recipeRepository = RecipesRepository(_database);
-    final goalsQuery = (_database.select(
-      _database.dailyGoalsTable,
-    )..orderBy([(table) => OrderingTerm(expression: table.id)])).watch();
     final mealsQuery = (_database.select(
       _database.savedMealsTable,
     )..orderBy([(table) => OrderingTerm(expression: table.createdAt)])).watch();
@@ -1598,20 +2338,16 @@ class FoodLogRepository {
         .watch();
     final pantryQuery = _database.select(_database.pantryItemsTable).watch();
 
-    return goalsQuery
-        .combineLatest3(mealsQuery, adjustmentsQuery, (
-          goals,
-          meals,
-          adjustments,
-        ) {
-          return (goals, meals, adjustments);
+    return mealsQuery
+        .combineLatest(adjustmentsQuery, (meals, adjustments) {
+          return (meals, adjustments);
         })
         .combineLatest3(componentsQuery, recipeQuery, (
           combined,
           components,
           recipes,
         ) {
-          return (combined.$1, combined.$2, combined.$3, components, recipes);
+          return (combined.$1, combined.$2, components, recipes);
         })
         .combineLatest(recipeIngredientsQuery, (combined, recipeIngredients) {
           return (
@@ -1619,17 +2355,15 @@ class FoodLogRepository {
             combined.$2,
             combined.$3,
             combined.$4,
-            combined.$5,
             recipeIngredients,
           );
         })
         .combineLatest(pantryQuery, (combined, pantryItems) {
-          final goals = combined.$1;
-          final meals = combined.$2;
-          final adjustments = combined.$3;
-          final components = combined.$4;
-          final recipes = combined.$5;
-          final recipeIngredients = combined.$6;
+          final meals = combined.$1;
+          final adjustments = combined.$2;
+          final components = combined.$3;
+          final recipes = combined.$4;
+          final recipeIngredients = combined.$5;
           final recipesById = {for (final recipe in recipes) recipe.id: recipe};
           final pantryById = {
             for (final pantryItem in pantryItems) pantryItem.id: pantryItem,
@@ -1659,63 +2393,169 @@ class FoodLogRepository {
           }
           final nutritionCache = <String, NutritionSnapshot>{};
 
+          return meals
+              .map((meal) {
+                final manualNutrition = _nutritionFromSavedMealRow(meal);
+                final mealComponents =
+                    componentsByMealId[meal.id] ?? const <SavedMealComponent>[];
+                final linkedNutrition = mealComponents
+                    .map(
+                      (component) => _resolveSavedMealComponentNutrition(
+                        component: component,
+                        recipeRepository: recipeRepository,
+                        recipesById: recipesById,
+                        ingredientsByRecipeId: ingredientsByRecipeId,
+                        pantryById: pantryById,
+                        nutritionCache: nutritionCache,
+                      ),
+                    )
+                    .fold(
+                      NutritionSnapshot.zero,
+                      (total, item) => total + item,
+                    );
+                return SavedMeal(
+                  id: meal.id,
+                  name: meal.title,
+                  nutrition: manualNutrition + linkedNutrition,
+                  manualNutrition: manualNutrition,
+                  adjustments:
+                      (adjustmentsByMealId[meal.id] ??
+                              const <SavedMealAdjustment>[])
+                          .map((adjustment) => adjustment.label)
+                          .toList(growable: false),
+                  components: mealComponents
+                      .map(
+                        (component) => SavedMealComponentDraft(
+                          quantity: component.quantity,
+                          unit: component.unit,
+                          item: component.item,
+                          linkType: recipeRepository._ingredientTypeFromName(
+                            component.componentType,
+                          ),
+                          linkedPantryItemId: component.linkedPantryItemId,
+                          linkedRecipeId: component.linkedRecipeId,
+                        ),
+                      )
+                      .toList(growable: false),
+                );
+              })
+              .toList(growable: false);
+        });
+  }
+
+  Stream<List<FoodLogEntryTarget>> watchEntryTargets() {
+    final recipesRepository = RecipesRepository(_database);
+    final pantryRepository = PantryRepository(_database);
+
+    return watchSavedMeals().combineLatest3(
+      recipesRepository.watchRecipes(),
+      pantryRepository.watchPantryItems(),
+      (savedMeals, recipes, pantryItems) {
+        final savedMealTargets = savedMeals
+            .map(
+              (meal) => FoodLogEntryTarget(
+                id: meal.id,
+                sourceType: FoodLogEntrySourceType.savedMeal,
+                title: meal.name,
+                referenceUnit: 'meal',
+                nutrition: meal.nutrition,
+                subtitle: 'Saved meal • per 1 meal',
+              ),
+            )
+            .toList(growable: false);
+        final recipeTargets = recipes
+            .map(
+              (recipe) => FoodLogEntryTarget(
+                id: recipe.id,
+                sourceType: FoodLogEntrySourceType.recipe,
+                title: recipe.name,
+                referenceUnit: 'serving',
+                nutrition: recipe.nutrition,
+                subtitle: 'Recipe • ${recipe.versionLabel} • per 1 serving',
+              ),
+            )
+            .toList(growable: false);
+        final pantryTargets = pantryItems
+            .map(
+              (item) => FoodLogEntryTarget(
+                id: item.id,
+                sourceType: FoodLogEntrySourceType.pantryItem,
+                title: item.name,
+                referenceUnit: item.referenceUnit,
+                nutrition: item.nutrition,
+                referenceUnitEquivalentQuantity:
+                    item.referenceUnitEquivalentQuantity,
+                referenceUnitEquivalentUnit: item.referenceUnitEquivalentUnit,
+                referenceUnitWeightGrams: item.referenceUnitWeightGrams,
+                subtitle:
+                    'Pantry item • ${item.quantityLabel} • per ${MeasurementUnits.describeReferenceUnit(referenceUnit: item.referenceUnit, referenceUnitEquivalentQuantity: item.referenceUnitEquivalentQuantity, referenceUnitEquivalentUnit: item.referenceUnitEquivalentUnit, referenceUnitWeightGrams: item.referenceUnitWeightGrams)}',
+              ),
+            )
+            .toList(growable: false);
+
+        final targets =
+            [...savedMealTargets, ...recipeTargets, ...pantryTargets]
+              ..sort((left, right) {
+                final typeComparison = left.sourceType.name.compareTo(
+                  right.sourceType.name,
+                );
+                if (typeComparison != 0) {
+                  return typeComparison;
+                }
+                return left.title.compareTo(right.title);
+              });
+        return targets;
+      },
+    );
+  }
+
+  Stream<FoodLogSnapshot> watchSnapshot() {
+    final goalsQuery = (_database.select(
+      _database.dailyGoalsTable,
+    )..orderBy([(table) => OrderingTerm(expression: table.id)])).watch();
+    final entriesQuery =
+        (_database.select(_database.foodLogEntriesTable)
+              ..where((table) => table.entryDate.equals(_todayDateKey))
+              ..orderBy([(table) => OrderingTerm(expression: table.createdAt)]))
+            .watch();
+
+    return goalsQuery
+        .combineLatest(watchSavedMeals(), (goals, savedMeals) {
+          return (goals, savedMeals);
+        })
+        .combineLatest(entriesQuery, (combined, entryRows) {
+          final consumedNutrition = entryRows
+              .map(_nutritionFromFoodLogEntryRow)
+              .fold(
+                NutritionSnapshot.zero,
+                (total, nutrition) => total + nutrition,
+              );
+
           return FoodLogSnapshot(
-            goals: goals
+            goals: combined.$1
                 .map(
                   (goal) => DailyGoal(
                     label: goal.label,
-                    consumed: goal.consumed,
+                    consumed: _goalValueForLabel(consumedNutrition, goal.label),
                     target: goal.target,
                   ),
                 )
                 .toList(growable: false),
-            savedMeals: meals
-                .map((meal) {
-                  final manualNutrition = _nutritionFromSavedMealRow(meal);
-                  final mealComponents =
-                      componentsByMealId[meal.id] ??
-                      const <SavedMealComponent>[];
-                  final linkedNutrition = mealComponents
-                      .map(
-                        (component) => _resolveSavedMealComponentNutrition(
-                          component: component,
-                          recipeRepository: recipeRepository,
-                          recipesById: recipesById,
-                          ingredientsByRecipeId: ingredientsByRecipeId,
-                          pantryById: pantryById,
-                          nutritionCache: nutritionCache,
-                        ),
-                      )
-                      .fold(
-                        NutritionSnapshot.zero,
-                        (total, item) => total + item,
-                      );
-                  return SavedMeal(
-                    id: meal.id,
-                    name: meal.title,
-                    nutrition: manualNutrition + linkedNutrition,
-                    manualNutrition: manualNutrition,
-                    adjustments:
-                        (adjustmentsByMealId[meal.id] ??
-                                const <SavedMealAdjustment>[])
-                            .map((adjustment) => adjustment.label)
-                            .toList(growable: false),
-                    components: mealComponents
-                        .map(
-                          (component) => SavedMealComponentDraft(
-                            quantity: component.quantity,
-                            unit: component.unit,
-                            item: component.item,
-                            linkType: recipeRepository._ingredientTypeFromName(
-                              component.componentType,
-                            ),
-                            linkedPantryItemId: component.linkedPantryItemId,
-                            linkedRecipeId: component.linkedRecipeId,
-                          ),
-                        )
-                        .toList(growable: false),
-                  );
-                })
+            savedMeals: combined.$2,
+            entries: entryRows
+                .map(
+                  (entry) => FoodLogEntry(
+                    id: entry.id,
+                    date: _dateFromKey(entry.entryDate),
+                    mealSlot: _mealSlotFromName(entry.mealSlot),
+                    sourceType: _entrySourceTypeFromName(entry.sourceType),
+                    sourceId: entry.sourceId,
+                    title: entry.title,
+                    quantity: entry.quantity,
+                    unit: entry.unit,
+                    nutrition: _nutritionFromFoodLogEntryRow(entry),
+                  ),
+                )
                 .toList(growable: false),
           );
         });
@@ -1827,12 +2667,72 @@ class FoodLogRepository {
             );
       }
     });
+
+    await _sync.recordChange(
+      entityType: SyncEntityType.savedMeal,
+      entityId: mealId,
+      changeType: SyncChangeType.upsert,
+      displayLabel: draft.name.trim(),
+    );
   }
 
-  Future<void> deleteSavedMeal(String id) {
-    return (_database.delete(
+  Future<void> deleteSavedMeal(String id) async {
+    await (_database.delete(
       _database.savedMealsTable,
     )..where((table) => table.id.equals(id))).go();
+    await _sync.recordChange(
+      entityType: SyncEntityType.savedMeal,
+      entityId: id,
+      changeType: SyncChangeType.delete,
+    );
+  }
+
+  Future<void> saveFoodLogEntry(
+    FoodLogEntryDraft draft, {
+    String? existingId,
+  }) async {
+    final entryId =
+        existingId ?? 'food_log_entry_${DateTime.now().microsecondsSinceEpoch}';
+
+    await _database
+        .into(_database.foodLogEntriesTable)
+        .insertOnConflictUpdate(
+          FoodLogEntriesTableCompanion.insert(
+            id: entryId,
+            entryDate: _dateKey(draft.date),
+            mealSlot: draft.mealSlot.name,
+            sourceType: draft.sourceType.name,
+            sourceId: draft.sourceId,
+            title: draft.title,
+            quantity: draft.quantity.trim(),
+            unit: draft.unit.trim(),
+            calories: draft.nutrition.calories,
+            protein: draft.nutrition.protein,
+            carbs: draft.nutrition.carbs,
+            fat: draft.nutrition.fat,
+            fiber: draft.nutrition.fiber,
+            sodium: draft.nutrition.sodium,
+            sugar: draft.nutrition.sugar,
+            createdAt: DateTime.now(),
+          ),
+        );
+    await _sync.recordChange(
+      entityType: SyncEntityType.foodLogEntry,
+      entityId: entryId,
+      changeType: SyncChangeType.upsert,
+      displayLabel: draft.title.trim(),
+    );
+  }
+
+  Future<void> deleteFoodLogEntry(String id) async {
+    await (_database.delete(
+      _database.foodLogEntriesTable,
+    )..where((table) => table.id.equals(id))).go();
+    await _sync.recordChange(
+      entityType: SyncEntityType.foodLogEntry,
+      entityId: id,
+      changeType: SyncChangeType.delete,
+    );
   }
 
   NutritionSnapshot _nutritionFromSavedMealRow(SavedMealsTableData meal) {
@@ -1844,6 +2744,18 @@ class FoodLogRepository {
       fiber: meal.fiber,
       sodium: meal.sodium,
       sugar: meal.sugar,
+    );
+  }
+
+  NutritionSnapshot _nutritionFromFoodLogEntryRow(FoodLogEntriesTableData row) {
+    return NutritionSnapshot(
+      calories: row.calories,
+      protein: row.protein,
+      carbs: row.carbs,
+      fat: row.fat,
+      fiber: row.fiber,
+      sodium: row.sodium,
+      sugar: row.sugar,
     );
   }
 
@@ -1908,6 +2820,54 @@ class FoodLogRepository {
                     .scale(resolution.referenceUnits!);
               }(),
     };
+  }
+
+  int _goalValueForLabel(NutritionSnapshot nutrition, String label) {
+    return switch (label.trim().toLowerCase()) {
+      'calories' => nutrition.calories,
+      'protein' => nutrition.protein,
+      'carbs' => nutrition.carbs,
+      'fat' => nutrition.fat,
+      'fiber' => nutrition.fiber,
+      'sodium' => nutrition.sodium,
+      'sugar' => nutrition.sugar,
+      _ => 0,
+    };
+  }
+
+  FoodLogMealSlot _mealSlotFromName(String value) {
+    return FoodLogMealSlot.values.firstWhere(
+      (slot) => slot.name == value,
+      orElse: () => FoodLogMealSlot.snack,
+    );
+  }
+
+  FoodLogEntrySourceType _entrySourceTypeFromName(String value) {
+    return FoodLogEntrySourceType.values.firstWhere(
+      (type) => type.name == value,
+      orElse: () => FoodLogEntrySourceType.savedMeal,
+    );
+  }
+
+  String get _todayDateKey => _dateKey(SeedData.todayDate);
+
+  String _dateKey(DateTime date) {
+    return '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
+  DateTime _dateFromKey(String value) {
+    final parts = value.split('-');
+    if (parts.length != 3) {
+      return SeedData.todayDate;
+    }
+
+    final year = int.tryParse(parts[0]);
+    final month = int.tryParse(parts[1]);
+    final day = int.tryParse(parts[2]);
+    if (year == null || month == null || day == null) {
+      return SeedData.todayDate;
+    }
+    return DateTime(year, month, day);
   }
 }
 

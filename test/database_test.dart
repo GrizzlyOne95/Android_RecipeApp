@@ -3,8 +3,10 @@ import 'package:drift/native.dart';
 import 'package:flutter/material.dart' show Color;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:recipe_app/src/core/mock_data.dart';
+import 'package:recipe_app/src/core/sync_models.dart';
 import 'package:recipe_app/src/data/local/app_database.dart';
 import 'package:recipe_app/src/data/repositories/app_repositories.dart';
+import 'package:recipe_app/src/data/sync/cloud_sync_gateway.dart';
 
 void main() {
   test('seeds the local database once and exposes recipe records', () async {
@@ -22,6 +24,52 @@ void main() {
     expect(pantryRows, hasLength(3));
     expect(goalRows, hasLength(7));
   });
+
+  test(
+    'seedIfEmpty backfills newer tables for upgraded local installs',
+    () async {
+      final database = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(database.close);
+
+      final now = DateTime(2026, 3, 14, 8);
+      await database
+          .into(database.recipes)
+          .insert(
+            RecipesCompanion.insert(
+              id: 'legacy_recipe',
+              title: 'Legacy Recipe',
+              versionLabel: const Value('Imported'),
+              notes: 'Existing install data',
+              servings: 2,
+              isPinned: const Value(false),
+              sortCalories: 320,
+              calories: 320,
+              protein: 20,
+              carbs: 24,
+              fat: 14,
+              fiber: 3,
+              sodium: 410,
+              sugar: 4,
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+
+      await database.seedIfEmpty();
+      await database.seedIfEmpty();
+
+      final recipeRows = await database.select(database.recipes).get();
+      final goalRows = await database.select(database.dailyGoalsTable).get();
+      final foodLogRows = await database
+          .select(database.foodLogEntriesTable)
+          .get();
+
+      expect(recipeRows, hasLength(1));
+      expect(recipeRows.single.title, 'Legacy Recipe');
+      expect(goalRows, hasLength(7));
+      expect(foodLogRows, hasLength(SeedData.foodLogEntries.length));
+    },
+  );
 
   test('recipe repository reads seeded summaries from the database', () async {
     final database = AppDatabase.forTesting(NativeDatabase.memory());
@@ -411,6 +459,8 @@ void main() {
     await repositories.pantry.savePantryItem(
       const PantryItemDraft(
         name: 'Measured Cottage Cheese',
+        brand: 'Good Culture',
+        barcode: '012345678905',
         quantityLabel: '24 oz tub',
         referenceUnit: 'serving',
         source: 'Manual entry',
@@ -439,11 +489,15 @@ void main() {
     expect(created.referenceUnitEquivalentQuantity, 0.5);
     expect(created.referenceUnitEquivalentUnit, 'cup');
     expect(created.referenceUnitWeightGrams, 113);
+    expect(created.brand, 'Good Culture');
+    expect(created.barcode, '012345678905');
     expect(created.nutrition.protein, 14);
 
     await repositories.pantry.savePantryItem(
       const PantryItemDraft(
         name: 'Measured Cottage Cheese',
+        brand: null,
+        barcode: null,
         quantityLabel: '24 oz tub',
         referenceUnit: 'serving',
         source: 'Manual update',
@@ -473,12 +527,130 @@ void main() {
     expect(updated.referenceUnitEquivalentQuantity, 120);
     expect(updated.referenceUnitEquivalentUnit, 'g');
     expect(updated.referenceUnitWeightGrams, 120);
+    expect(updated.brand, isNull);
+    expect(updated.barcode, isNull);
 
     await repositories.pantry.deletePantryItem(created.id);
 
     pantryItems = await repositories.pantry.watchPantryItems().first;
     expect(pantryItems.where((item) => item.id == created.id), isEmpty);
   });
+
+  test(
+    'sync repository connects a cloud account and flushes queued changes',
+    () async {
+      final database = AppDatabase.forTesting(NativeDatabase.memory());
+      final gateway = _FakeCloudSyncGateway(isAvailable: true);
+      final repositories = AppRepositories(database, cloudSyncGateway: gateway);
+      addTearDown(database.close);
+
+      await repositories.initialize();
+
+      var status = await repositories.sync.watchStatus().first;
+      expect(status.isConnected, isFalse);
+      expect(status.isCloudConfigured, isTrue);
+      expect(status.pendingChangeCount, 0);
+
+      await repositories.pantry.savePantryItem(
+        const PantryItemDraft(
+          name: 'Sync Salsa',
+          quantityLabel: '16 oz jar',
+          referenceUnit: 'serving',
+          source: 'Manual entry',
+          nutrition: NutritionSnapshot(
+            calories: 10,
+            protein: 0,
+            carbs: 2,
+            fat: 0,
+            fiber: 0,
+            sodium: 180,
+            sugar: 1,
+          ),
+          accent: Color(0xFFD87B42),
+        ),
+      );
+
+      var pantryItems = await repositories.pantry.watchPantryItems().first;
+      final salsa = pantryItems.firstWhere((item) => item.name == 'Sync Salsa');
+
+      await repositories.pantry.savePantryItem(
+        salsa.toDraft().copyWith(source: 'Manual update'),
+        existingId: salsa.id,
+      );
+      await repositories.pantry.deletePantryItem(salsa.id);
+
+      await repositories.grocery.saveManualItem(
+        const GroceryManualItemDraft(
+          sectionTitle: 'Quick Add',
+          label: 'Limes',
+          quantity: '4',
+          unit: 'each',
+        ),
+      );
+
+      final sections = await repositories.grocery.watchGrocerySections().first;
+      final limes = sections
+          .firstWhere((section) => section.title == 'Quick Add')
+          .items
+          .firstWhere((item) => item.label == 'Limes');
+      await repositories.grocery.toggleItemChecked(limes, true);
+
+      status = await repositories.sync.watchStatus().first;
+      expect(status.pendingChangeCount, 2);
+      final connectResult = await repositories.sync.connectGoogleAccount();
+      expect(connectResult.isSuccess, isTrue);
+
+      status = await repositories.sync.watchStatus().first;
+      expect(status.isConnected, isTrue);
+      expect(status.providerLabel, 'Google');
+      expect(status.accountEmail, 'chef@example.com');
+      expect(status.pendingChangeCount, 0);
+      expect(status.lastSyncedAt, isNotNull);
+
+      expect(gateway.appliedMutations, hasLength(2));
+      final pantryMutation = gateway.appliedMutations.firstWhere(
+        (mutation) => mutation.entityType == SyncEntityType.pantryItem,
+      );
+      final groceryMutation = gateway.appliedMutations.firstWhere(
+        (mutation) => mutation.entityType == SyncEntityType.groceryItem,
+      );
+      expect(pantryMutation.changeType, SyncChangeType.delete);
+      expect(groceryMutation.changeType, SyncChangeType.upsert);
+      expect(gateway.lastUserId, 'firebase-user-1');
+      expect(gateway.lastAccountEmail, 'chef@example.com');
+
+      final disconnectResult = await repositories.sync.disconnect();
+      expect(disconnectResult.isSuccess, isTrue);
+      status = await repositories.sync.watchStatus().first;
+      expect(status.isConnected, isFalse);
+    },
+  );
+
+  test(
+    'sync repository surfaces setup-needed state when Firebase is unavailable',
+    () async {
+      final database = AppDatabase.forTesting(NativeDatabase.memory());
+      final repositories = AppRepositories(
+        database,
+        cloudSyncGateway: _FakeCloudSyncGateway(isAvailable: false),
+      );
+      addTearDown(database.close);
+
+      await repositories.initialize();
+
+      final status = await repositories.sync.watchStatus().first;
+      expect(status.isCloudConfigured, isFalse);
+      expect(status.cloudStatusMessage, contains('not configured'));
+
+      final connectResult = await repositories.sync.connectGoogleAccount();
+      expect(connectResult.isSuccess, isFalse);
+      expect(connectResult.message, contains('not configured'));
+
+      final failedStatus = await repositories.sync.watchStatus().first;
+      expect(failedStatus.lastErrorMessage, contains('not configured'));
+      expect(failedStatus.isConnected, isFalse);
+    },
+  );
 
   test(
     'food log repository recalculates saved meals with linked pantry and recipe components',
@@ -613,6 +785,72 @@ void main() {
           (savedMeal) => savedMeal.id == updatedMeal.id,
         ),
         isEmpty,
+      );
+    },
+  );
+
+  test(
+    'food log repository logs daily entries and recalculates goals from entry snapshots',
+    () async {
+      final database = AppDatabase.forTesting(NativeDatabase.memory());
+      final repositories = AppRepositories(database);
+      addTearDown(database.close);
+
+      await repositories.initialize();
+
+      final targets = await repositories.foodLog.watchEntryTargets().first;
+      final yogurt = targets.firstWhere(
+        (target) =>
+            target.sourceType == FoodLogEntrySourceType.pantryItem &&
+            target.id == 'pantry_0',
+      );
+
+      var snapshot = await repositories.foodLog.watchSnapshot().first;
+      expect(
+        snapshot.goals.firstWhere((goal) => goal.label == 'Calories').consumed,
+        1425,
+      );
+      expect(
+        snapshot.goals.firstWhere((goal) => goal.label == 'Protein').consumed,
+        110,
+      );
+
+      await repositories.foodLog.saveFoodLogEntry(
+        FoodLogEntryDraft(
+          date: SeedData.todayDate,
+          mealSlot: FoodLogMealSlot.snack,
+          sourceType: yogurt.sourceType,
+          sourceId: yogurt.id,
+          title: yogurt.title,
+          quantity: '1',
+          unit: 'serving',
+          nutrition: yogurt.nutrition,
+        ),
+      );
+
+      snapshot = await repositories.foodLog.watchSnapshot().first;
+      final addedEntry = snapshot.entries.firstWhere(
+        (entry) => entry.sourceId == yogurt.id && entry.quantity == '1',
+      );
+      expect(
+        snapshot.goals.firstWhere((goal) => goal.label == 'Calories').consumed,
+        1515,
+      );
+      expect(
+        snapshot.goals.firstWhere((goal) => goal.label == 'Protein').consumed,
+        128,
+      );
+
+      await repositories.foodLog.deleteFoodLogEntry(addedEntry.id);
+
+      snapshot = await repositories.foodLog.watchSnapshot().first;
+      expect(
+        snapshot.entries.where((entry) => entry.id == addedEntry.id),
+        isEmpty,
+      );
+      expect(
+        snapshot.goals.firstWhere((goal) => goal.label == 'Calories').consumed,
+        1425,
       );
     },
   );
@@ -958,4 +1196,70 @@ void main() {
     recipes = await repositories.recipes.watchRecipes().first;
     expect(recipes.where((recipe) => recipe.id == created.id), isEmpty);
   });
+}
+
+class _FakeCloudSyncGateway implements CloudSyncGateway {
+  _FakeCloudSyncGateway({required bool isAvailable})
+    : _availability = CloudSyncAvailability(
+        isAvailable: isAvailable,
+        message: isAvailable
+            ? 'Firebase is configured for tests.'
+            : 'Firebase is not configured for this test.',
+      );
+
+  final CloudSyncAvailability _availability;
+  final List<CloudSyncMutation> appliedMutations = <CloudSyncMutation>[];
+  CloudSyncSession _session = const CloudSyncSession(
+    isConfigured: false,
+    providerLabel: 'Google',
+  );
+  String? lastUserId;
+  String? lastAccountEmail;
+
+  @override
+  CloudSyncAvailability get availability => _availability;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<CloudSyncSession> currentSession() async => _session;
+
+  @override
+  Future<CloudSyncSession> signInWithGoogle() async {
+    if (!availability.isAvailable) {
+      throw StateError(availability.message);
+    }
+    _session = const CloudSyncSession(
+      isConfigured: true,
+      providerLabel: 'Google',
+      userId: 'firebase-user-1',
+      email: 'chef@example.com',
+    );
+    return _session;
+  }
+
+  @override
+  Future<void> signOut() async {
+    _session = CloudSyncSession(
+      isConfigured: availability.isAvailable,
+      providerLabel: 'Google',
+    );
+  }
+
+  @override
+  Future<void> applyMutations({
+    required String userId,
+    required String accountEmail,
+    required List<CloudSyncMutation> mutations,
+  }) async {
+    if (!availability.isAvailable) {
+      throw StateError(availability.message);
+    }
+    lastUserId = userId;
+    lastAccountEmail = accountEmail;
+    appliedMutations
+      ..clear()
+      ..addAll(mutations);
+  }
 }

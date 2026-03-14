@@ -297,6 +297,7 @@ abstract final class MeasurementUnits {
   static const _discreteUnitGroups = <String, String>{
     'serving': 'serving',
     'portion': 'serving',
+    'meal': 'meal',
     'each': 'each',
     'ea': 'each',
     'item': 'each',
@@ -390,6 +391,7 @@ abstract final class MeasurementUnits {
     'uk gallons': 'imp gallon',
     'servings': 'serving',
     'portions': 'portion',
+    'meals': 'meal',
     'eaches': 'each',
     'items': 'item',
     'wholes': 'whole',

@@ -120,21 +120,25 @@ Drift is now the local persistence baseline because this app has strongly relati
 - unit
 - checked state
 
-## First Delivery Slice
+## Current Delivery State
 
-The current repository implementation intentionally covers the shell and product framing first:
+The current repository implementation has moved well beyond the initial shell slice:
 
-- adaptive 4-tab navigation
-- real local SQLite-backed persistence for the current tab data
-- seed cards for recipes, pantry items, grocery sections, and food-log goals
-- tablet-aware layout behavior
-- theme direction aligned to a cooking and planning product rather than a generic template
+- adaptive 4-tab navigation with phone and tablet layouts
+- local SQLite-backed persistence through Drift
+- editable recipe CRUD with linked ingredients, nested recipe nutrition, and saved-meal composition
+- pantry CRUD with brand and barcode capture
+- grocery export plus manual quick-add flows
+- food-log entry, daily goal rollups, and saved-meal logging
+- universal quick add from the app shell
+- local-first sync queue and Sync Center UI
+- optional Firebase Auth + Firestore push scaffolding for the existing Firebase project
 
 ## Recommended Next Milestones
 
-1. Add a real local database schema and repositories.
-2. Introduce feature state management and editable forms.
-3. Add Firebase Auth and opt-in sync.
-4. Add barcode scanning and nutrition import.
-5. Add recipe import parsing from URL, text, and OCR.
-6. Add dependency graph recalculation for nested recipes and saved meals.
+1. Complete Firebase console enablement and validate live Android sign-in plus Firestore push.
+2. Add cloud pull, merge, and conflict resolution.
+3. Add camera-based barcode scanning and nutrition import.
+4. Expand recipe import from plain text into URL and OCR ingestion.
+5. Improve sync diagnostics, retry handling, and conflict transparency.
+6. Add Mac-based iOS sign-in verification once Apple-side setup is available.

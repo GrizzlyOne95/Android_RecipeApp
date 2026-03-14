@@ -6,6 +6,22 @@ import '../../core/mock_data.dart';
 import '../../data/repositories/app_repositories.dart';
 import '../shell/app_shell.dart';
 
+Future<PantryItemDraft?> showPantryItemEditorSheet(
+  BuildContext context, {
+  PantryItemDraft? initialDraft,
+  String? existingItemName,
+}) {
+  return showModalBottomSheet<PantryItemDraft>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (context) => _PantryEditorSheet(
+      initialDraft: initialDraft,
+      existingItemName: existingItemName,
+    ),
+  );
+}
+
 class PantryPage extends StatefulWidget {
   const PantryPage({super.key});
 
@@ -31,8 +47,23 @@ class _PantryPageState extends State<PantryPage> {
             icon: const Icon(Icons.add),
             label: const Text('Manual item'),
           ),
-          const Chip(label: Text('Scan barcode')),
-          const Chip(label: Text('Import photo')),
+          FilledButton.tonalIcon(
+            onPressed: () => _openEditor(
+              context,
+              repository,
+              initialDraft: const PantryItemDraft(
+                name: '',
+                quantityLabel: '',
+                referenceUnit: 'serving',
+                source: 'Barcode capture',
+                nutrition: NutritionSnapshot.zero,
+                accent: Color(0xFF4A6572),
+              ),
+            ),
+            icon: const Icon(Icons.qr_code_scanner),
+            label: const Text('Barcode item'),
+          ),
+          const Chip(label: Text('Photo OCR next')),
         ],
       ),
       child: Column(
@@ -75,15 +106,12 @@ class _PantryPageState extends State<PantryPage> {
     BuildContext context,
     PantryRepository repository, {
     PantryItem? item,
+    PantryItemDraft? initialDraft,
   }) async {
-    final result = await showModalBottomSheet<PantryItemDraft>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (context) => _PantryEditorSheet(
-        initialDraft: item?.toDraft(),
-        existingItemName: item?.name,
-      ),
+    final result = await showPantryItemEditorSheet(
+      context,
+      initialDraft: initialDraft ?? item?.toDraft(),
+      existingItemName: item?.name,
     );
 
     if (result == null || !context.mounted) {
@@ -215,6 +243,25 @@ class _PantryCard extends StatelessWidget {
                   Text(item.quantityLabel, style: theme.textTheme.labelLarge),
                   const SizedBox(height: 6),
                   Text(item.source, style: theme.textTheme.bodyMedium),
+                  if (item.brand != null || item.barcode != null) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        if (item.brand case final brand?)
+                          Chip(
+                            avatar: const Icon(Icons.sell_outlined, size: 18),
+                            label: Text(brand),
+                          ),
+                        if (item.barcode case final barcode?)
+                          Chip(
+                            avatar: const Icon(Icons.qr_code, size: 18),
+                            label: Text(barcode),
+                          ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 4),
                   Text(
                     'Nutrition shown per ${MeasurementUnits.describeReferenceUnit(referenceUnit: item.referenceUnit, referenceUnitEquivalentQuantity: item.referenceUnitEquivalentQuantity, referenceUnitEquivalentUnit: item.referenceUnitEquivalentUnit, referenceUnitWeightGrams: item.referenceUnitWeightGrams)}',
@@ -275,6 +322,8 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
 
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameController;
+  late final TextEditingController _brandController;
+  late final TextEditingController _barcodeController;
   late final TextEditingController _quantityLabelController;
   late final TextEditingController _referenceUnitController;
   late final TextEditingController _sourceController;
@@ -304,6 +353,8 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
           accent: Color(0xFFD87B42),
         );
     _nameController = TextEditingController(text: draft.name);
+    _brandController = TextEditingController(text: draft.brand ?? '');
+    _barcodeController = TextEditingController(text: draft.barcode ?? '');
     _quantityLabelController = TextEditingController(text: draft.quantityLabel);
     _referenceUnitController = TextEditingController(text: draft.referenceUnit);
     _sourceController = TextEditingController(text: draft.source);
@@ -363,6 +414,8 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
       controller.removeListener(_handleDraftChanged);
     }
     _nameController.dispose();
+    _brandController.dispose();
+    _barcodeController.dispose();
     _quantityLabelController.dispose();
     _referenceUnitController.dispose();
     _sourceController.dispose();
@@ -437,6 +490,23 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
                       controller: _nameController,
                       decoration: const InputDecoration(labelText: 'Item name'),
                       validator: _requiredText,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _brandController,
+                      decoration: const InputDecoration(
+                        labelText: 'Brand',
+                        hintText: 'Fage, Trader Joe\'s, Kirkland',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _barcodeController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Barcode',
+                        hintText: 'UPC / EAN / store code',
+                      ),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
@@ -655,6 +725,8 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
     Navigator.of(context).pop(
       PantryItemDraft(
         name: _nameController.text.trim(),
+        brand: _normalizedOptionalText(_brandController.text),
+        barcode: _normalizedOptionalText(_barcodeController.text),
         quantityLabel: _quantityLabelController.text.trim(),
         referenceUnit: _referenceUnitController.text.trim(),
         source: _sourceController.text.trim(),
@@ -678,6 +750,11 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
         ),
       ),
     );
+  }
+
+  String? _normalizedOptionalText(String value) {
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
   }
 
   void _handleDraftChanged() {

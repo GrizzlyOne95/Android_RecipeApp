@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/recipe_app_scope.dart';
 import '../../core/measurement_units.dart';
 import '../../core/mock_data.dart';
+import '../../core/recipe_import.dart';
 import '../../data/repositories/app_repositories.dart';
 import '../shell/app_shell.dart';
 
@@ -27,6 +28,7 @@ class _RecipesPageState extends State<RecipesPage> {
       trailing: _RecipeActions(
         sortOrder: _sortOrder,
         onAddPressed: () => _openEditor(context, repository),
+        onImportSelected: (mode) => _openImport(context, repository, mode),
         onSortSelected: (sortOrder) {
           setState(() {
             _sortOrder = sortOrder;
@@ -196,6 +198,30 @@ class _RecipesPageState extends State<RecipesPage> {
     );
   }
 
+  Future<void> _openImport(
+    BuildContext context,
+    RecipesRepository repository,
+    RecipeImportMode mode,
+  ) async {
+    final draft = await showModalBottomSheet<RecipeDraft>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => _RecipeImportSheet(mode: mode),
+    );
+
+    if (draft == null || !context.mounted) {
+      return;
+    }
+
+    await _openEditor(
+      context,
+      repository,
+      initialDraft: draft,
+      saveAsNew: true,
+    );
+  }
+
   RecipeDraft _duplicateDraft(RecipeDraft draft) {
     final versionLabel = draft.versionLabel.trim();
     final duplicateLabel = versionLabel.isEmpty
@@ -254,11 +280,13 @@ class _RecipeActions extends StatelessWidget {
   const _RecipeActions({
     required this.sortOrder,
     required this.onAddPressed,
+    required this.onImportSelected,
     required this.onSortSelected,
   });
 
   final RecipeSortOrder sortOrder;
   final VoidCallback onAddPressed;
+  final ValueChanged<RecipeImportMode> onImportSelected;
   final ValueChanged<RecipeSortOrder> onSortSelected;
 
   @override
@@ -289,10 +317,196 @@ class _RecipeActions extends StatelessWidget {
             label: Text('Sort: ${sortOrder.shortLabel}'),
           ),
         ),
-        const Chip(label: Text('Import URL')),
-        const Chip(label: Text('OCR screenshot')),
+        PopupMenuButton<RecipeImportMode>(
+          onSelected: onImportSelected,
+          itemBuilder: (context) => RecipeImportMode.values
+              .map(
+                (mode) => PopupMenuItem<RecipeImportMode>(
+                  value: mode,
+                  child: Text(mode.actionLabel),
+                ),
+              )
+              .toList(growable: false),
+          child: const Chip(
+            avatar: Icon(Icons.file_download_outlined, size: 18),
+            label: Text('Import recipe'),
+          ),
+        ),
       ],
     );
+  }
+}
+
+class _RecipeImportSheet extends StatefulWidget {
+  const _RecipeImportSheet({required this.mode});
+
+  final RecipeImportMode mode;
+
+  @override
+  State<_RecipeImportSheet> createState() => _RecipeImportSheetState();
+}
+
+class _RecipeImportSheetState extends State<_RecipeImportSheet> {
+  late final TextEditingController _sourceController;
+  late final TextEditingController _urlController;
+
+  @override
+  void initState() {
+    super.initState();
+    _sourceController = TextEditingController();
+    _urlController = TextEditingController();
+    _sourceController.addListener(_handleChanged);
+    _urlController.addListener(_handleChanged);
+  }
+
+  @override
+  void dispose() {
+    _sourceController.removeListener(_handleChanged);
+    _urlController.removeListener(_handleChanged);
+    _sourceController.dispose();
+    _urlController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final viewInsets = MediaQuery.viewInsetsOf(context);
+    final theme = Theme.of(context);
+    final result = RecipeImportParser.parse(
+      mode: widget.mode,
+      rawText: _sourceController.text,
+      sourceUrl: _urlController.text,
+    );
+    final hasInput =
+        _sourceController.text.trim().isNotEmpty ||
+        _urlController.text.trim().isNotEmpty;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + viewInsets.bottom),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.mode.sheetTitle,
+                        style: theme.textTheme.headlineMedium,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        widget.mode.sheetSubtitle,
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _FormSection(
+              title: 'Source',
+              child: Column(
+                children: [
+                  if (widget.mode == RecipeImportMode.urlPaste) ...[
+                    TextFormField(
+                      controller: _urlController,
+                      keyboardType: TextInputType.url,
+                      decoration: const InputDecoration(
+                        labelText: 'Recipe URL',
+                        hintText: 'https://example.com/recipe-name',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  TextFormField(
+                    controller: _sourceController,
+                    minLines: widget.mode == RecipeImportMode.urlPaste ? 6 : 12,
+                    maxLines: widget.mode == RecipeImportMode.urlPaste ? 10 : 18,
+                    decoration: InputDecoration(
+                      labelText: widget.mode.sourceLabel,
+                      hintText: widget.mode.sourceHint,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _FormSection(
+              title: 'Parsed Draft',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(result.draft.name, style: theme.textTheme.titleLarge),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${result.draft.servings} servings • ${result.draft.ingredients.length} ingredients • ${result.draft.directions.length} directions',
+                    style: theme.textTheme.bodyLarge,
+                  ),
+                  const SizedBox(height: 12),
+                  _NutritionPreviewGrid(nutrition: result.draft.nutrition),
+                  if (result.draft.note.trim().isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Text(result.draft.note, style: theme.textTheme.bodyMedium),
+                  ],
+                  if (result.warnings.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    ...result.warnings.map(
+                      (warning) => Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Text(
+                          warning,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: const Color(0xFFB34F3F),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: hasInput ? () => _submit(result.draft) : null,
+                    child: const Text('Review in editor'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _submit(RecipeDraft draft) {
+    Navigator.of(context).pop(draft);
+  }
+
+  void _handleChanged() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
   }
 }
 
@@ -1963,6 +2177,44 @@ extension on RecipeSortOrder {
   String get shortLabel => switch (this) {
     RecipeSortOrder.caloriesLowToHigh => 'Low to High',
     RecipeSortOrder.caloriesHighToLow => 'High to Low',
+  };
+}
+
+extension on RecipeImportMode {
+  String get actionLabel => switch (this) {
+    RecipeImportMode.textPaste => 'Paste recipe text',
+    RecipeImportMode.urlPaste => 'Paste recipe URL',
+    RecipeImportMode.ocrPaste => 'Paste OCR text',
+  };
+
+  String get sheetTitle => switch (this) {
+    RecipeImportMode.textPaste => 'Import From Text',
+    RecipeImportMode.urlPaste => 'Import From URL',
+    RecipeImportMode.ocrPaste => 'Import From OCR',
+  };
+
+  String get sheetSubtitle => switch (this) {
+    RecipeImportMode.textPaste =>
+      'Paste a recipe article, note, or copied ingredients and directions to draft a recipe locally.',
+    RecipeImportMode.urlPaste =>
+      'Paste the source URL and optionally the page text or excerpt for a stronger draft import.',
+    RecipeImportMode.ocrPaste =>
+      'Paste OCR output from a screenshot or scanned cookbook page, then review the parsed draft.',
+  };
+
+  String get sourceLabel => switch (this) {
+    RecipeImportMode.textPaste => 'Recipe text',
+    RecipeImportMode.urlPaste => 'Page text or excerpt',
+    RecipeImportMode.ocrPaste => 'OCR text',
+  };
+
+  String get sourceHint => switch (this) {
+    RecipeImportMode.textPaste =>
+      'Title, servings, ingredients, directions, and nutrition if available.',
+    RecipeImportMode.urlPaste =>
+      'Optional but recommended: paste the visible recipe text so the draft can infer ingredients and directions.',
+    RecipeImportMode.ocrPaste =>
+      'Paste the recognized screenshot text here. Quantities and units can be cleaned up in the editor.',
   };
 }
 

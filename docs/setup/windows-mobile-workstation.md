@@ -1,19 +1,22 @@
 # Windows Mobile Workstation Setup
 
-This document records the working mobile setup on `C:\Users\istuart\Documents\GIT\Android_RecipeApp` as of March 13, 2026.
+This document records the working mobile setup on `C:\Users\iestu\Documents\GIT\Android_RecipeApp` as of March 14, 2026.
 
 ## Machine State
 
 - OS: Windows 11 Pro 25H2
-- Java: Temurin OpenJDK 21.0.7
-- Android Studio: `C:\Program Files\Android\Android Studio`
+- Java: Temurin OpenJDK 21.0.10
+- Android Studio: not required for the verified Android workflow on this profile
 - Android SDK: `C:\Users\istuart\AppData\Local\Android\Sdk`
-- Flutter SDK: `C:\Users\istuart\develop\flutter`
+- Android SDK: `C:\Users\iestu\AppData\Local\Android\Sdk`
+- Flutter SDK: `C:\Users\iestu\develop\flutter`
 - Flutter version: `3.41.4`
 - Dart version: `3.11.1`
-- Node.js: `v22.19.0`
-- npm: `10.9.3`
-- Firebase CLI: installed globally via npm
+- Node.js: `v22.22.0`
+- npm: `10.9.4`
+- Node install path: `C:\Users\iestu\Tools\nodejs`
+- JDK path: `C:\Users\iestu\Tools\jdk-21`
+- Firebase CLI: `15.10.0`
 - FlutterFire CLI: installed via Dart pub global activate
 - Verified Android emulator: `NutriChef_Emulator`
 
@@ -21,30 +24,36 @@ This document records the working mobile setup on `C:\Users\istuart\Documents\GI
 
 These were added to the user profile:
 
-- `ANDROID_HOME=C:\Users\istuart\AppData\Local\Android\Sdk`
-- `ANDROID_SDK_ROOT=C:\Users\istuart\AppData\Local\Android\Sdk`
+- `ANDROID_HOME=C:\Users\iestu\AppData\Local\Android\Sdk`
+- `ANDROID_SDK_ROOT=C:\Users\iestu\AppData\Local\Android\Sdk`
+- `JAVA_HOME=C:\Users\iestu\Tools\jdk-21`
 
 The user `Path` includes:
 
-- `C:\Users\istuart\develop\flutter\bin`
-- `C:\Users\istuart\AppData\Local\Android\Sdk\platform-tools`
-- `C:\Users\istuart\AppData\Local\Android\Sdk\emulator`
-- `C:\Users\istuart\AppData\Local\Android\Sdk\cmdline-tools\latest\bin`
-- `C:\Users\istuart\AppData\Local\Pub\Cache\bin`
-- `C:\Users\istuart\AppData\Roaming\npm`
+- `C:\Users\iestu\Tools\jdk-21\bin`
+- `C:\Users\iestu\develop\flutter\bin`
+- `C:\Users\iestu\Tools\nodejs`
+- `C:\Users\iestu\AppData\Local\Android\Sdk\platform-tools`
+- `C:\Users\iestu\AppData\Local\Android\Sdk\emulator`
+- `C:\Users\iestu\AppData\Local\Android\Sdk\cmdline-tools\latest\bin`
+- `C:\Users\iestu\AppData\Local\Pub\Cache\bin`
+- `C:\Users\iestu\AppData\Roaming\npm`
 
 Open a new terminal after applying environment-variable changes.
 
 ## What Was Installed Or Verified
 
-1. Verified Android Studio and Android SDK were already present.
-2. Installed Flutter SDK by cloning the stable channel to `C:\Users\istuart\develop\flutter`.
-3. Downloaded and installed Android command-line tools under `C:\Users\istuart\AppData\Local\Android\Sdk\cmdline-tools\latest`.
-4. Accepted Android SDK licenses.
-5. Verified `flutter doctor -v` returned no issues.
-6. Installed `firebase-tools` globally with npm.
-7. Installed `flutterfire_cli` with Dart pub.
-8. Booted and verified the Android emulator with `adb devices`.
+1. Verified the existing Android SDK, emulator packages, and system images.
+2. Installed Flutter stable by cloning to `C:\Users\iestu\develop\flutter`.
+3. Downloaded and installed Android command-line tools under `C:\Users\iestu\AppData\Local\Android\Sdk\cmdline-tools\latest`.
+4. Installed Node.js 22 as a user-local zip to `C:\Users\iestu\Tools\nodejs`.
+5. Installed Temurin JDK 21 as a user-local zip to `C:\Users\iestu\Tools\jdk-21`.
+6. Configured Flutter to use that JDK with `flutter config --jdk-dir="C:\Users\iestu\Tools\jdk-21"`.
+7. Accepted Android SDK licenses.
+8. Installed `firebase-tools` globally with npm.
+9. Installed `flutterfire_cli` with Dart pub.
+10. Created and boot-verified the Android emulator `NutriChef_Emulator`.
+11. Verified the repo with `flutter pub get`, `dart run build_runner build --delete-conflicting-outputs`, `flutter analyze`, `flutter test`, and `flutter run -d emulator-5554 --no-resident`.
 
 ## Recreate On Another Windows Workstation
 
@@ -69,7 +78,10 @@ git clone https://github.com/flutter/flutter.git -b stable C:\Users\<you>\develo
 ```text
 ANDROID_HOME=<Android SDK path>
 ANDROID_SDK_ROOT=<Android SDK path>
+JAVA_HOME=<JDK 21 path>
 Path += flutter\bin
+Path += <JDK 21>\bin
+Path += <Node.js path>
 Path += <Android SDK>\platform-tools
 Path += <Android SDK>\emulator
 Path += <Android SDK>\cmdline-tools\latest\bin
@@ -98,6 +110,12 @@ adb devices
 emulator -list-avds
 ```
 
+11. If Flutter is picking up the wrong JDK, point it at Java 21:
+
+```powershell
+flutter config --jdk-dir="<JDK 21 path>"
+```
+
 ## Daily Commands
 
 ```powershell
@@ -114,6 +132,11 @@ iPhone simulator testing cannot be done from this Windows machine. The shared Fl
 
 ## Deferred Manual Steps
 
-- `firebase login`
-- `flutterfire configure`
+- Enable Google sign-in and Cloud Firestore in Firebase project `nutrichef-recipeapp-6d24f`
+- Add Android SHA fingerprints for `com.istuart.recipeapp`
+- Refresh remaining OAuth client ids for Google sign-in wiring
 - Apple signing, bundle identifiers, and iOS simulator or device setup on a Mac
+
+## Non-Blocking Note
+
+`flutter doctor -v` still reports missing Visual Studio C++ components for Windows desktop development on this profile. That does not block Android development or this repo's current mobile workflow.

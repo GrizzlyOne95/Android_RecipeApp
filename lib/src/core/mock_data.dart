@@ -276,6 +276,8 @@ class PantryItem {
     required this.source,
     required this.nutrition,
     required this.accent,
+    this.barcode,
+    this.brand,
     this.referenceUnitEquivalentQuantity,
     this.referenceUnitEquivalentUnit,
     this.referenceUnitWeightGrams,
@@ -288,6 +290,8 @@ class PantryItem {
   final String source;
   final NutritionSnapshot nutrition;
   final Color accent;
+  final String? barcode;
+  final String? brand;
   final double? referenceUnitEquivalentQuantity;
   final String? referenceUnitEquivalentUnit;
   final double? referenceUnitWeightGrams;
@@ -300,6 +304,8 @@ class PantryItem {
       source: source,
       nutrition: nutrition,
       accent: accent,
+      barcode: barcode,
+      brand: brand,
       referenceUnitEquivalentQuantity: referenceUnitEquivalentQuantity,
       referenceUnitEquivalentUnit: referenceUnitEquivalentUnit,
       referenceUnitWeightGrams: referenceUnitWeightGrams,
@@ -315,6 +321,8 @@ class PantryItemDraft {
     required this.source,
     required this.nutrition,
     required this.accent,
+    this.barcode,
+    this.brand,
     this.referenceUnitEquivalentQuantity,
     this.referenceUnitEquivalentUnit,
     this.referenceUnitWeightGrams,
@@ -326,6 +334,8 @@ class PantryItemDraft {
   final String source;
   final NutritionSnapshot nutrition;
   final Color accent;
+  final String? barcode;
+  final String? brand;
   final double? referenceUnitEquivalentQuantity;
   final String? referenceUnitEquivalentUnit;
   final double? referenceUnitWeightGrams;
@@ -337,6 +347,8 @@ class PantryItemDraft {
     String? source,
     NutritionSnapshot? nutrition,
     Color? accent,
+    String? barcode,
+    String? brand,
     double? referenceUnitEquivalentQuantity,
     String? referenceUnitEquivalentUnit,
     double? referenceUnitWeightGrams,
@@ -348,6 +360,8 @@ class PantryItemDraft {
       source: source ?? this.source,
       nutrition: nutrition ?? this.nutrition,
       accent: accent ?? this.accent,
+      barcode: barcode ?? this.barcode,
+      brand: brand ?? this.brand,
       referenceUnitEquivalentQuantity:
           referenceUnitEquivalentQuantity ??
           this.referenceUnitEquivalentQuantity,
@@ -534,6 +548,80 @@ class SavedMealDraft {
   }
 }
 
+enum FoodLogEntrySourceType { savedMeal, recipe, pantryItem }
+
+enum FoodLogMealSlot { breakfast, lunch, dinner, snack }
+
+class FoodLogEntryTarget {
+  const FoodLogEntryTarget({
+    required this.id,
+    required this.sourceType,
+    required this.title,
+    required this.referenceUnit,
+    required this.nutrition,
+    this.referenceUnitEquivalentQuantity,
+    this.referenceUnitEquivalentUnit,
+    this.referenceUnitWeightGrams,
+    this.subtitle = '',
+  });
+
+  final String id;
+  final FoodLogEntrySourceType sourceType;
+  final String title;
+  final String referenceUnit;
+  final NutritionSnapshot nutrition;
+  final double? referenceUnitEquivalentQuantity;
+  final String? referenceUnitEquivalentUnit;
+  final double? referenceUnitWeightGrams;
+  final String subtitle;
+}
+
+class FoodLogEntryDraft {
+  const FoodLogEntryDraft({
+    required this.date,
+    required this.mealSlot,
+    required this.sourceType,
+    required this.sourceId,
+    required this.title,
+    required this.quantity,
+    required this.unit,
+    required this.nutrition,
+  });
+
+  final DateTime date;
+  final FoodLogMealSlot mealSlot;
+  final FoodLogEntrySourceType sourceType;
+  final String sourceId;
+  final String title;
+  final String quantity;
+  final String unit;
+  final NutritionSnapshot nutrition;
+}
+
+class FoodLogEntry {
+  const FoodLogEntry({
+    required this.id,
+    required this.date,
+    required this.mealSlot,
+    required this.sourceType,
+    required this.sourceId,
+    required this.title,
+    required this.quantity,
+    required this.unit,
+    required this.nutrition,
+  });
+
+  final String id;
+  final DateTime date;
+  final FoodLogMealSlot mealSlot;
+  final FoodLogEntrySourceType sourceType;
+  final String sourceId;
+  final String title;
+  final String quantity;
+  final String unit;
+  final NutritionSnapshot nutrition;
+}
+
 class DailyGoal {
   const DailyGoal({
     required this.label,
@@ -547,13 +635,19 @@ class DailyGoal {
 }
 
 class FoodLogSnapshot {
-  const FoodLogSnapshot({required this.goals, required this.savedMeals});
+  const FoodLogSnapshot({
+    required this.goals,
+    required this.savedMeals,
+    required this.entries,
+  });
 
   final List<DailyGoal> goals;
   final List<SavedMeal> savedMeals;
+  final List<FoodLogEntry> entries;
 }
 
 abstract final class SeedData {
+  static final todayDate = DateTime(2026, 3, 13);
   static const todayLabel = 'Friday, March 13';
 
   static const recipes = <RecipeSummary>[
@@ -803,6 +897,8 @@ abstract final class SeedData {
       quantityLabel: '32 oz tub',
       referenceUnit: 'serving',
       source: 'Barcode scan + Open Food Facts',
+      barcode: '085239086852',
+      brand: 'Fage',
       nutrition: NutritionSnapshot(
         calories: 90,
         protein: 18,
@@ -823,6 +919,8 @@ abstract final class SeedData {
       quantityLabel: '3 cans',
       referenceUnit: 'can',
       source: 'Manual edit after scan',
+      barcode: '072101010616',
+      brand: 'Muir Glen',
       nutrition: NutritionSnapshot(
         calories: 25,
         protein: 1,
@@ -937,6 +1035,81 @@ abstract final class SeedData {
       ),
       adjustments: ['Pancakes: 1.0x', 'Yogurt bowl: 0.75x'],
       components: [],
+    ),
+  ];
+
+  static final foodLogEntries = <FoodLogEntryDraft>[
+    FoodLogEntryDraft(
+      date: todayDate,
+      mealSlot: FoodLogMealSlot.breakfast,
+      sourceType: FoodLogEntrySourceType.savedMeal,
+      sourceId: 'saved_meal_1',
+      title: 'High-Protein Breakfast',
+      quantity: '1',
+      unit: 'meal',
+      nutrition: NutritionSnapshot(
+        calories: 410,
+        protein: 35,
+        carbs: 31,
+        fat: 14,
+        fiber: 4,
+        sodium: 470,
+        sugar: 9,
+      ),
+    ),
+    FoodLogEntryDraft(
+      date: todayDate,
+      mealSlot: FoodLogMealSlot.lunch,
+      sourceType: FoodLogEntrySourceType.recipe,
+      sourceId: 'recipe_1',
+      title: 'Weeknight Turkey Chili',
+      quantity: '1',
+      unit: 'serving',
+      nutrition: NutritionSnapshot(
+        calories: 328,
+        protein: 29,
+        carbs: 22,
+        fat: 13,
+        fiber: 8,
+        sodium: 560,
+        sugar: 5,
+      ),
+    ),
+    FoodLogEntryDraft(
+      date: todayDate,
+      mealSlot: FoodLogMealSlot.snack,
+      sourceType: FoodLogEntrySourceType.pantryItem,
+      sourceId: 'pantry_0',
+      title: 'Nonfat Greek Yogurt',
+      quantity: '0.5',
+      unit: 'serving',
+      nutrition: NutritionSnapshot(
+        calories: 45,
+        protein: 9,
+        carbs: 3,
+        fat: 0,
+        fiber: 0,
+        sodium: 33,
+        sugar: 3,
+      ),
+    ),
+    FoodLogEntryDraft(
+      date: todayDate,
+      mealSlot: FoodLogMealSlot.dinner,
+      sourceType: FoodLogEntrySourceType.savedMeal,
+      sourceId: 'saved_meal_0',
+      title: 'Chili Night',
+      quantity: '1',
+      unit: 'meal',
+      nutrition: NutritionSnapshot(
+        calories: 642,
+        protein: 37,
+        carbs: 52,
+        fat: 31,
+        fiber: 11,
+        sodium: 980,
+        sugar: 8,
+      ),
     ),
   ];
 
