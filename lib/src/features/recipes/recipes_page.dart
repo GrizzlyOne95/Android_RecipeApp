@@ -4,6 +4,8 @@ import '../../app/recipe_app_scope.dart';
 import '../../core/measurement_units.dart';
 import '../../core/mock_data.dart';
 import '../../core/recipe_import.dart';
+import '../../data/import/recipe_ocr_importer.dart';
+import '../../data/import/recipe_url_importer.dart';
 import '../../data/repositories/app_repositories.dart';
 import '../shell/app_shell.dart';
 
@@ -349,6 +351,14 @@ class _RecipeImportSheet extends StatefulWidget {
 class _RecipeImportSheetState extends State<_RecipeImportSheet> {
   late final TextEditingController _sourceController;
   late final TextEditingController _urlController;
+  final RecipeOcrImporter _ocrImporter = RecipeOcrImporter();
+  final RecipeUrlImporter _urlImporter = RecipeUrlImporter();
+  bool _isRunningOcr = false;
+  bool _isFetchingUrl = false;
+  String? _ocrImageLabel;
+  List<String> _ocrWarnings = const <String>[];
+  bool _usedStructuredFetch = false;
+  List<String> _fetchWarnings = const <String>[];
 
   @override
   void initState() {
@@ -377,6 +387,11 @@ class _RecipeImportSheetState extends State<_RecipeImportSheet> {
       rawText: _sourceController.text,
       sourceUrl: _urlController.text,
     );
+    final combinedWarnings = <String>[
+      ..._fetchWarnings,
+      ..._ocrWarnings,
+      ...result.warnings,
+    ];
     final hasInput =
         _sourceController.text.trim().isNotEmpty ||
         _urlController.text.trim().isNotEmpty;
@@ -426,6 +441,98 @@ class _RecipeImportSheetState extends State<_RecipeImportSheet> {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.tonalIcon(
+                            onPressed: _isFetchingUrl ? null : _fetchFromUrl,
+                            icon: _isFetchingUrl
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.cloud_download_outlined),
+                            label: Text(
+                              _isFetchingUrl ? 'Fetching...' : 'Fetch page',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_usedStructuredFetch || _fetchWarnings.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (_usedStructuredFetch)
+                            const Chip(
+                              avatar: Icon(Icons.data_object, size: 18),
+                              label: Text('Structured recipe detected'),
+                            ),
+                          for (final warning in _fetchWarnings)
+                            Chip(
+                              avatar: const Icon(Icons.info_outline, size: 18),
+                              label: Text(warning),
+                            ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                  ],
+                  if (widget.mode == RecipeImportMode.ocrPaste) ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.tonalIcon(
+                            onPressed: _isRunningOcr ? null : _importFromImage,
+                            icon: _isRunningOcr
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.photo_library_outlined),
+                            label: Text(
+                              _isRunningOcr
+                                  ? 'Reading screenshot...'
+                                  : 'Pick recipe screenshot',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_ocrImageLabel != null || _ocrWarnings.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (_ocrImageLabel case final imageLabel?)
+                            Chip(
+                              avatar: const Icon(
+                                Icons.image_outlined,
+                                size: 18,
+                              ),
+                              label: Text(imageLabel),
+                            ),
+                          for (final warning in _ocrWarnings)
+                            Chip(
+                              avatar: const Icon(
+                                Icons.scanner_outlined,
+                                size: 18,
+                              ),
+                              label: Text(warning),
+                            ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 12),
                   ],
                   TextFormField(
                     controller: _sourceController,
@@ -459,9 +566,9 @@ class _RecipeImportSheetState extends State<_RecipeImportSheet> {
                     const SizedBox(height: 12),
                     Text(result.draft.note, style: theme.textTheme.bodyMedium),
                   ],
-                  if (result.warnings.isNotEmpty) ...[
+                  if (combinedWarnings.isNotEmpty) ...[
                     const SizedBox(height: 14),
-                    ...result.warnings.map(
+                    ...combinedWarnings.map(
                       (warning) => Padding(
                         padding: const EdgeInsets.only(bottom: 6),
                         child: Text(
@@ -509,6 +616,120 @@ class _RecipeImportSheetState extends State<_RecipeImportSheet> {
       return;
     }
     setState(() {});
+  }
+
+  Future<void> _fetchFromUrl() async {
+    final url = _urlController.text.trim();
+    if (url.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Paste a recipe URL first.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isFetchingUrl = true;
+      _fetchWarnings = const <String>[];
+      _usedStructuredFetch = false;
+    });
+
+    try {
+      final fetched = await _urlImporter.fetch(url);
+      if (!mounted) {
+        return;
+      }
+
+      _sourceController.text = fetched.extractedText;
+      setState(() {
+        _fetchWarnings = fetched.warnings;
+        _usedStructuredFetch = fetched.usedStructuredData;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            fetched.usedStructuredData
+                ? 'Recipe page imported from structured data.'
+                : 'Recipe page text imported. Review the parsed draft.',
+          ),
+        ),
+      );
+    } on RecipeUrlImportException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Recipe page import failed unexpectedly. You can still paste text manually.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isFetchingUrl = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _importFromImage() async {
+    setState(() {
+      _isRunningOcr = true;
+      _ocrWarnings = const <String>[];
+      _ocrImageLabel = null;
+    });
+
+    try {
+      final result = await _ocrImporter.importFromGallery();
+      if (!mounted || result == null) {
+        return;
+      }
+
+      _sourceController.text = result.extractedText;
+      setState(() {
+        _ocrWarnings = result.warnings;
+        _ocrImageLabel = result.imageLabel;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'OCR text imported from ${result.imageLabel}. Review the draft before saving.',
+          ),
+        ),
+      );
+    } on RecipeOcrImportException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Screenshot OCR failed unexpectedly. You can still paste OCR text manually.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRunningOcr = false;
+        });
+      }
+    }
   }
 }
 
@@ -2187,7 +2408,7 @@ extension on RecipeImportMode {
   String get actionLabel => switch (this) {
     RecipeImportMode.textPaste => 'Paste recipe text',
     RecipeImportMode.urlPaste => 'Paste recipe URL',
-    RecipeImportMode.ocrPaste => 'Paste OCR text',
+    RecipeImportMode.ocrPaste => 'Import screenshot OCR',
   };
 
   String get sheetTitle => switch (this) {
@@ -2200,24 +2421,24 @@ extension on RecipeImportMode {
     RecipeImportMode.textPaste =>
       'Paste a recipe article, note, or copied ingredients and directions to draft a recipe locally.',
     RecipeImportMode.urlPaste =>
-      'Paste the source URL and optionally the page text or excerpt for a stronger draft import.',
+      'Paste the source URL and fetch the page for a stronger draft import, or paste your own excerpt manually.',
     RecipeImportMode.ocrPaste =>
-      'Paste OCR output from a screenshot or scanned cookbook page, then review the parsed draft.',
+      'Pick a recipe screenshot to extract text automatically, or paste OCR output manually if you already have it.',
   };
 
   String get sourceLabel => switch (this) {
     RecipeImportMode.textPaste => 'Recipe text',
     RecipeImportMode.urlPaste => 'Page text or excerpt',
-    RecipeImportMode.ocrPaste => 'OCR text',
+    RecipeImportMode.ocrPaste => 'Extracted OCR text',
   };
 
   String get sourceHint => switch (this) {
     RecipeImportMode.textPaste =>
       'Title, servings, ingredients, directions, and nutrition if available.',
     RecipeImportMode.urlPaste =>
-      'Optional but recommended: paste the visible recipe text so the draft can infer ingredients and directions.',
+      'Optional fallback: paste the visible recipe text yourself if the page fetch misses something.',
     RecipeImportMode.ocrPaste =>
-      'Paste the recognized screenshot text here. Quantities and units can be cleaned up in the editor.',
+      'Choose a screenshot above or paste recognized text here. Quantities and units can be cleaned up in the editor.',
   };
 }
 

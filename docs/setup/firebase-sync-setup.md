@@ -42,6 +42,12 @@ The current build already knows the project id, sender id, storage bucket, Andro
 
 Google sign-in will stay disabled until the missing local values above are provided. Keep them local only: use `--dart-define`, untracked Firebase config files, or regenerate config on your own machine.
 
+Optional local nutrition-import override:
+
+- `USDA_API_KEY`
+
+If `USDA_API_KEY` is not provided, the pantry barcode fallback uses USDA's public `DEMO_KEY` by default. A real USDA key is still recommended for steadier rate limits.
+
 Recommended two-PC workflow:
 
 1. Commit and sync only repo files through Git
@@ -66,7 +72,8 @@ flutter run -d emulator-5554 `
   --dart-define FIREBASE_IOS_API_KEY=<ios-api-key> `
   --dart-define FIREBASE_IOS_APP_ID=1:144405192913:ios:fb8a8be93d31a042d9e5f0 `
   --dart-define FIREBASE_IOS_CLIENT_ID=<ios-client-id> `
-  --dart-define FIREBASE_IOS_BUNDLE_ID=com.istuart.recipeapp.recipeApp
+  --dart-define FIREBASE_IOS_BUNDLE_ID=com.istuart.recipeapp.recipeApp `
+  --dart-define USDA_API_KEY=<usda-api-key>
 ```
 
 ## Notes

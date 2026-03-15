@@ -32,7 +32,7 @@ class _GroceryPageState extends State<GroceryPage> {
     return ShellScaffold(
       title: 'Grocery List',
       subtitle:
-          'Export ingredients from recipes or pinned meal plans, then mix in standalone ingredients like sour cream, fruit, or snacks.',
+          'Export ingredients from pinned recipes, saved meals, or reusable day plans, then mix in standalone ingredients like sour cream, fruit, or snacks.',
       trailing: Wrap(
         spacing: 10,
         runSpacing: 10,
@@ -69,6 +69,15 @@ class _GroceryPageState extends State<GroceryPage> {
                       );
                     },
                   ),
+                  FilterChip(
+                    selected: settings.includeDayPlans,
+                    label: const Text('Day plans'),
+                    onSelected: (value) {
+                      repository.setExportSettings(
+                        settings.copyWith(includeDayPlans: value),
+                      );
+                    },
+                  ),
                 ],
               );
             },
@@ -81,7 +90,7 @@ class _GroceryPageState extends State<GroceryPage> {
           const SectionTitle(
             title: 'Shopping Flow',
             caption:
-                'Meal-plan exports and one-off items live together so the shopping list matches how you actually cook.',
+                'Recipe, saved-meal, and day-plan exports live alongside one-off items so the shopping list matches how you actually cook.',
           ),
           StreamBuilder<List<GrocerySection>>(
             stream: repository.watchGrocerySections(),

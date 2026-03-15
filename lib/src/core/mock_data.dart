@@ -281,6 +281,7 @@ class PantryItem {
     required this.accent,
     this.barcode,
     this.brand,
+    this.imageUrl,
     this.referenceUnitEquivalentQuantity,
     this.referenceUnitEquivalentUnit,
     this.referenceUnitWeightGrams,
@@ -296,6 +297,7 @@ class PantryItem {
   final Color accent;
   final String? barcode;
   final String? brand;
+  final String? imageUrl;
   final double? referenceUnitEquivalentQuantity;
   final String? referenceUnitEquivalentUnit;
   final double? referenceUnitWeightGrams;
@@ -311,6 +313,7 @@ class PantryItem {
       accent: accent,
       barcode: barcode,
       brand: brand,
+      imageUrl: imageUrl,
       referenceUnitEquivalentQuantity: referenceUnitEquivalentQuantity,
       referenceUnitEquivalentUnit: referenceUnitEquivalentUnit,
       referenceUnitWeightGrams: referenceUnitWeightGrams,
@@ -329,6 +332,7 @@ class PantryItemDraft {
     required this.accent,
     this.barcode,
     this.brand,
+    this.imageUrl,
     this.referenceUnitEquivalentQuantity,
     this.referenceUnitEquivalentUnit,
     this.referenceUnitWeightGrams,
@@ -343,6 +347,7 @@ class PantryItemDraft {
   final Color accent;
   final String? barcode;
   final String? brand;
+  final String? imageUrl;
   final double? referenceUnitEquivalentQuantity;
   final String? referenceUnitEquivalentUnit;
   final double? referenceUnitWeightGrams;
@@ -357,6 +362,7 @@ class PantryItemDraft {
     Color? accent,
     String? barcode,
     String? brand,
+    String? imageUrl,
     double? referenceUnitEquivalentQuantity,
     String? referenceUnitEquivalentUnit,
     double? referenceUnitWeightGrams,
@@ -372,6 +378,7 @@ class PantryItemDraft {
       accent: accent ?? this.accent,
       barcode: barcode ?? this.barcode,
       brand: brand ?? this.brand,
+      imageUrl: imageUrl ?? this.imageUrl,
       referenceUnitEquivalentQuantity:
           referenceUnitEquivalentQuantity ??
           this.referenceUnitEquivalentQuantity,
@@ -412,23 +419,28 @@ class GroceryExportSettings {
   const GroceryExportSettings({
     required this.includePinnedRecipes,
     required this.includeSavedMeals,
+    required this.includeDayPlans,
   });
 
   static const defaults = GroceryExportSettings(
     includePinnedRecipes: true,
     includeSavedMeals: true,
+    includeDayPlans: true,
   );
 
   final bool includePinnedRecipes;
   final bool includeSavedMeals;
+  final bool includeDayPlans;
 
   GroceryExportSettings copyWith({
     bool? includePinnedRecipes,
     bool? includeSavedMeals,
+    bool? includeDayPlans,
   }) {
     return GroceryExportSettings(
       includePinnedRecipes: includePinnedRecipes ?? this.includePinnedRecipes,
       includeSavedMeals: includeSavedMeals ?? this.includeSavedMeals,
+      includeDayPlans: includeDayPlans ?? this.includeDayPlans,
     );
   }
 }
@@ -650,12 +662,97 @@ class FoodLogSnapshot {
   const FoodLogSnapshot({
     required this.goals,
     required this.savedMeals,
+    required this.dayPlans,
     required this.entries,
   });
 
   final List<DailyGoal> goals;
   final List<SavedMeal> savedMeals;
+  final List<DayPlan> dayPlans;
   final List<FoodLogEntry> entries;
+}
+
+class FoodLogSuggestion {
+  const FoodLogSuggestion({
+    required this.target,
+    required this.recommendedMealSlot,
+    required this.reason,
+    required this.score,
+  });
+
+  final FoodLogEntryTarget target;
+  final FoodLogMealSlot recommendedMealSlot;
+  final String reason;
+  final double score;
+}
+
+class DayPlanEntryDraft {
+  const DayPlanEntryDraft({
+    required this.mealSlot,
+    required this.sourceType,
+    required this.sourceId,
+    required this.title,
+    required this.quantity,
+    required this.unit,
+    required this.nutrition,
+  });
+
+  final FoodLogMealSlot mealSlot;
+  final FoodLogEntrySourceType sourceType;
+  final String sourceId;
+  final String title;
+  final String quantity;
+  final String unit;
+  final NutritionSnapshot nutrition;
+}
+
+class DayPlanDraft {
+  const DayPlanDraft({
+    required this.name,
+    this.note = '',
+    required this.entries,
+  });
+
+  final String name;
+  final String note;
+  final List<DayPlanEntryDraft> entries;
+
+  DayPlanDraft copyWith({
+    String? name,
+    String? note,
+    List<DayPlanEntryDraft>? entries,
+  }) {
+    return DayPlanDraft(
+      name: name ?? this.name,
+      note: note ?? this.note,
+      entries: entries ?? this.entries,
+    );
+  }
+}
+
+class DayPlan {
+  const DayPlan({
+    required this.id,
+    required this.name,
+    required this.note,
+    required this.entries,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String name;
+  final String note;
+  final List<DayPlanEntryDraft> entries;
+  final DateTime createdAt;
+
+  NutritionSnapshot get nutrition => entries.fold(
+    NutritionSnapshot.zero,
+    (total, entry) => total + entry.nutrition,
+  );
+
+  DayPlanDraft toDraft() {
+    return DayPlanDraft(name: name, note: note, entries: entries);
+  }
 }
 
 abstract final class SeedData {
@@ -1122,6 +1219,27 @@ abstract final class SeedData {
         sodium: 980,
         sugar: 8,
       ),
+    ),
+  ];
+
+  static final dayPlans = <DayPlanDraft>[
+    DayPlanDraft(
+      name: 'High-Protein Default Day',
+      note:
+          'A reusable weekday structure built from the current saved meals and a yogurt snack.',
+      entries: foodLogEntries
+          .map(
+            (entry) => DayPlanEntryDraft(
+              mealSlot: entry.mealSlot,
+              sourceType: entry.sourceType,
+              sourceId: entry.sourceId,
+              title: entry.title,
+              quantity: entry.quantity,
+              unit: entry.unit,
+              nutrition: entry.nutrition,
+            ),
+          )
+          .toList(growable: false),
     ),
   ];
 

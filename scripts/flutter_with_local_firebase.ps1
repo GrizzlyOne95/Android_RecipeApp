@@ -29,7 +29,8 @@ $defineOrder = @(
     "FIREBASE_IOS_API_KEY",
     "FIREBASE_IOS_APP_ID",
     "FIREBASE_IOS_CLIENT_ID",
-    "FIREBASE_IOS_BUNDLE_ID"
+    "FIREBASE_IOS_BUNDLE_ID",
+    "USDA_API_KEY"
 )
 
 $commandArgs = New-Object System.Collections.Generic.List[string]

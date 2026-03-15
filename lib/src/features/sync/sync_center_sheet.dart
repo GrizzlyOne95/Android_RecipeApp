@@ -76,6 +76,14 @@ class _SyncCenterSheet extends StatelessWidget {
                       ),
                       const SizedBox(height: 16),
                     ],
+                    if (status.lastConflictMessage case final conflict?) ...[
+                      _StatusNoticeCard(
+                        tone: _NoticeTone.warning,
+                        title: 'Last Merge Resolution',
+                        body: conflict,
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     if (status.pendingItems.isNotEmpty) ...[
                       Text(
                         'Pending Cloud Queue',
@@ -388,6 +396,7 @@ class _StatusNoticeCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = switch (tone) {
       _NoticeTone.info => const Color(0xFFF0E6D7),
+      _NoticeTone.warning => const Color(0xFFF7EBCB),
       _NoticeTone.error => const Color(0xFFF7DED8),
     };
 
@@ -414,7 +423,7 @@ class _StatusNoticeCard extends StatelessWidget {
   }
 }
 
-enum _NoticeTone { info, error }
+enum _NoticeTone { info, warning, error }
 
 class _SyncSetupSheet extends StatelessWidget {
   const _SyncSetupSheet();

@@ -50,6 +50,22 @@ class CloudSyncMutation {
   final Map<String, Object?>? payload;
 }
 
+class CloudSyncRemoteChange {
+  const CloudSyncRemoteChange({
+    required this.entityType,
+    required this.entityId,
+    required this.changeType,
+    required this.changedAt,
+    this.payload,
+  });
+
+  final SyncEntityType entityType;
+  final String entityId;
+  final SyncChangeType changeType;
+  final DateTime changedAt;
+  final Map<String, Object?>? payload;
+}
+
 abstract class CloudSyncGateway {
   CloudSyncAvailability get availability;
 
@@ -65,6 +81,10 @@ abstract class CloudSyncGateway {
     required String userId,
     required String accountEmail,
     required List<CloudSyncMutation> mutations,
+  });
+
+  Future<List<CloudSyncRemoteChange>> fetchRemoteChanges({
+    required String userId,
   });
 }
 
@@ -235,11 +255,20 @@ class FirebaseCloudSyncGateway implements CloudSyncGateway {
       final chunk = mutations.skip(start).take(400);
 
       for (final mutation in chunk) {
+        final deleteMarkerRef = root
+            .collection('_deleted_entities')
+            .doc(_deleteMarkerId(mutation.entityType, mutation.entityId));
         final documentRef = root
             .collection(_collectionName(mutation.entityType))
             .doc(mutation.entityId);
         if (mutation.changeType == SyncChangeType.delete) {
           batch.delete(documentRef);
+          batch.set(deleteMarkerRef, {
+            'entityType': mutation.entityType.name,
+            'entityId': mutation.entityId,
+            'localChangedAt': mutation.changedAt.toIso8601String(),
+            'deletedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
           continue;
         }
 
@@ -250,10 +279,88 @@ class FirebaseCloudSyncGateway implements CloudSyncGateway {
           'localChangedAt': mutation.changedAt.toIso8601String(),
           'syncedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
+        batch.delete(deleteMarkerRef);
       }
 
       await batch.commit();
     }
+  }
+
+  @override
+  Future<List<CloudSyncRemoteChange>> fetchRemoteChanges({
+    required String userId,
+  }) async {
+    await initialize();
+    if (!availability.isAvailable) {
+      throw StateError(availability.message);
+    }
+
+    final root = _firestoreInstance.collection('users').doc(userId);
+    final changes = <CloudSyncRemoteChange>[];
+    final supportedEntities = [
+      SyncEntityType.recipe,
+      SyncEntityType.pantryItem,
+      SyncEntityType.groceryItem,
+      SyncEntityType.savedMeal,
+      SyncEntityType.dayPlan,
+      SyncEntityType.foodLogEntry,
+    ];
+
+    for (final entityType in supportedEntities) {
+      final snapshot = await root.collection(_collectionName(entityType)).get();
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final changedAt =
+            _dateTimeFromValue(data['localChangedAt']) ??
+            _dateTimeFromValue(data['updatedAt']) ??
+            _dateTimeFromValue(data['createdAt']) ??
+            DateTime.fromMillisecondsSinceEpoch(0);
+        changes.add(
+          CloudSyncRemoteChange(
+            entityType: entityType,
+            entityId: doc.id,
+            changeType: SyncChangeType.upsert,
+            changedAt: changedAt,
+            payload: data,
+          ),
+        );
+      }
+    }
+
+    final deletionSnapshot = await root.collection('_deleted_entities').get();
+    for (final doc in deletionSnapshot.docs) {
+      final data = doc.data();
+      final entityTypeName = data['entityType'];
+      final entityId = data['entityId'];
+      if (entityTypeName is! String || entityId is! String) {
+        continue;
+      }
+      SyncEntityType? entityType;
+      for (final type in SyncEntityType.values) {
+        if (type.name == entityTypeName) {
+          entityType = type;
+          break;
+        }
+      }
+      if (entityType == null || !supportedEntities.contains(entityType)) {
+        continue;
+      }
+
+      changes.add(
+        CloudSyncRemoteChange(
+          entityType: entityType,
+          entityId: entityId,
+          changeType: SyncChangeType.delete,
+          changedAt:
+              _dateTimeFromValue(data['localChangedAt']) ??
+              _dateTimeFromValue(data['deletedAt']) ??
+              DateTime.fromMillisecondsSinceEpoch(0),
+        ),
+      );
+    }
+
+    changes.sort((left, right) => left.changedAt.compareTo(right.changedAt));
+    return changes;
   }
 
   String _collectionName(SyncEntityType entityType) {
@@ -262,7 +369,22 @@ class FirebaseCloudSyncGateway implements CloudSyncGateway {
       SyncEntityType.pantryItem => 'pantry_items',
       SyncEntityType.groceryItem => 'grocery_items',
       SyncEntityType.savedMeal => 'saved_meals',
+      SyncEntityType.dayPlan => 'day_plans',
       SyncEntityType.foodLogEntry => 'food_log_entries',
     };
+  }
+
+  String _deleteMarkerId(SyncEntityType entityType, String entityId) {
+    return '${entityType.name}_$entityId';
+  }
+
+  DateTime? _dateTimeFromValue(Object? value) {
+    if (value is Timestamp) {
+      return value.toDate();
+    }
+    if (value is String) {
+      return DateTime.tryParse(value);
+    }
+    return null;
   }
 }

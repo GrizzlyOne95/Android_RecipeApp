@@ -3,10 +3,7 @@ import 'mock_data.dart';
 enum RecipeImportMode { textPaste, urlPaste, ocrPaste }
 
 class RecipeImportResult {
-  const RecipeImportResult({
-    required this.draft,
-    required this.warnings,
-  });
+  const RecipeImportResult({required this.draft, required this.warnings});
 
   final RecipeDraft draft;
   final List<String> warnings;
@@ -44,10 +41,12 @@ abstract final class RecipeImportParser {
     }
 
     final nutrition = _extractNutrition(lines);
+    final metadataNotes = _extractMetadataNotes(lines);
     final noteLines = <String>[
       if (sourceUrl.trim().isNotEmpty) 'Imported from: ${sourceUrl.trim()}',
       if (mode == RecipeImportMode.ocrPaste)
         'Imported from OCR text. Double-check quantities and instructions.',
+      ...metadataNotes,
       ...?sections['notes'],
     ];
     final tags = <String>{
@@ -121,12 +120,23 @@ abstract final class RecipeImportParser {
       return 'ingredients';
     }
     if ({
+      'what you ll need',
+      'what youll need',
+      'you will need',
+      'for the recipe',
+      'ingredient list',
+    }.contains(normalized)) {
+      return 'ingredients';
+    }
+    if ({
       'instructions',
       'instruction',
       'directions',
       'method',
       'steps',
       'preparation',
+      'how to make it',
+      'method of preparation',
     }.contains(normalized)) {
       return 'directions';
     }
@@ -173,9 +183,7 @@ abstract final class RecipeImportParser {
   }
 
   static String _cleanTitle(String line) {
-    return line
-        .replaceAll(RegExp(r'^[#*\-\d\.\)\s]+'), '')
-        .trim();
+    return line.replaceAll(RegExp(r'^[#*\-\d\.\)\s]+'), '').trim();
   }
 
   static bool _looksLikeMetadata(String line) {
@@ -187,6 +195,7 @@ abstract final class RecipeImportParser {
         normalized.startsWith('prep time') ||
         normalized.startsWith('cook time') ||
         normalized.startsWith('total time') ||
+        normalized.startsWith('active time') ||
         normalized.startsWith('http://') ||
         normalized.startsWith('https://');
   }
@@ -233,12 +242,14 @@ abstract final class RecipeImportParser {
           r'^(\d+|\d+/\d+|\d+\s+\d+/\d+)',
           caseSensitive: false,
         ).hasMatch(trimmed) ||
+        RegExp(r'^\d+\s*x\s+\d+', caseSensitive: false).hasMatch(trimmed) ||
         trimmed.startsWith('- ') ||
-        trimmed.startsWith('* ');
+        trimmed.startsWith('* ') ||
+        trimmed.startsWith('• ');
   }
 
   static RecipeIngredientDraft? _parseIngredientLine(String line) {
-    final cleaned = line.replaceFirst(RegExp(r'^[-*]\s*'), '').trim();
+    final cleaned = line.replaceFirst(RegExp(r'^[-*•]\s*'), '').trim();
     if (cleaned.isEmpty) {
       return null;
     }
@@ -337,6 +348,7 @@ abstract final class RecipeImportParser {
     final directionLines = sections['directions'] ?? <String>[];
     if (directionLines.isNotEmpty) {
       return directionLines
+          .expand(_splitDirectionLine)
           .map(_cleanDirectionLine)
           .where((line) => line.isNotEmpty)
           .toList(growable: false);
@@ -344,15 +356,53 @@ abstract final class RecipeImportParser {
 
     return lines
         .where(
-          (line) => RegExp(r'^\d+[\).\s]').hasMatch(line) || line.startsWith('- '),
+          (line) =>
+              RegExp(r'^\d+[\).\s]').hasMatch(line) ||
+              RegExp(r'^step\s*\d+', caseSensitive: false).hasMatch(line) ||
+              line.startsWith('- '),
         )
+        .expand(_splitDirectionLine)
         .map(_cleanDirectionLine)
         .where((line) => line.isNotEmpty)
         .toList(growable: false);
   }
 
   static String _cleanDirectionLine(String line) {
-    return line.replaceFirst(RegExp(r'^[-*\d\.\)\s]+'), '').trim();
+    return line
+        .replaceFirst(
+          RegExp(r'^(step\s*)?\d+[:\.\)\-\s]*', caseSensitive: false),
+          '',
+        )
+        .replaceFirst(RegExp(r'^[-*\s]+'), '')
+        .trim();
+  }
+
+  static List<String> _splitDirectionLine(String line) {
+    final normalized = line.trim();
+    if (normalized.isEmpty) {
+      return const [];
+    }
+
+    final matches = RegExp(
+      r'(?:step\s*\d+|\b\d+)[:\.\)]',
+      caseSensitive: false,
+    ).allMatches(normalized).toList(growable: false);
+    if (matches.length <= 1) {
+      return [normalized];
+    }
+
+    final segments = <String>[];
+    for (var index = 0; index < matches.length; index++) {
+      final start = matches.elementAt(index).start;
+      final end = index + 1 < matches.length
+          ? matches.elementAt(index + 1).start
+          : normalized.length;
+      final segment = normalized.substring(start, end).trim();
+      if (segment.isNotEmpty) {
+        segments.add(segment);
+      }
+    }
+    return segments;
   }
 
   static NutritionSnapshot _extractNutrition(List<String> lines) {
@@ -379,6 +429,21 @@ abstract final class RecipeImportParser {
   static Set<String> _extractTags(List<String> lines) {
     final combined = lines.join(' ').toLowerCase();
     final tags = <String>{};
+    for (final line in lines) {
+      final match = RegExp(
+        r'^tags?\s*:\s*(.+)$',
+        caseSensitive: false,
+      ).firstMatch(line);
+      if (match != null) {
+        tags.addAll(
+          match
+              .group(1)!
+              .split(RegExp(r'[,;]'))
+              .map((tag) => _toTitleCase(tag.trim()))
+              .where((tag) => tag.isNotEmpty),
+        );
+      }
+    }
     if (combined.contains('breakfast')) {
       tags.add('Breakfast');
     }
@@ -401,5 +466,33 @@ abstract final class RecipeImportParser {
       tags.add('Meal prep');
     }
     return tags;
+  }
+
+  static List<String> _extractMetadataNotes(List<String> lines) {
+    final notes = <String>[];
+    for (final line in lines) {
+      final normalized = line.trim();
+      final lower = normalized.toLowerCase();
+      if (lower.startsWith('prep time') ||
+          lower.startsWith('cook time') ||
+          lower.startsWith('total time') ||
+          lower.startsWith('active time')) {
+        notes.add(normalized);
+      }
+    }
+    return notes;
+  }
+
+  static String _toTitleCase(String value) {
+    return value
+        .split(RegExp(r'\s+'))
+        .map((part) {
+          if (part.isEmpty) {
+            return part;
+          }
+          return '${part[0].toUpperCase()}${part.substring(1).toLowerCase()}';
+        })
+        .join(' ')
+        .trim();
   }
 }

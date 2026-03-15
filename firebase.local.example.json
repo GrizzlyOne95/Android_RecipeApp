@@ -8,5 +8,6 @@
   "FIREBASE_IOS_API_KEY": "",
   "FIREBASE_IOS_APP_ID": "1:144405192913:ios:fb8a8be93d31a042d9e5f0",
   "FIREBASE_IOS_CLIENT_ID": "",
-  "FIREBASE_IOS_BUNDLE_ID": "com.istuart.recipeapp.recipeApp"
+  "FIREBASE_IOS_BUNDLE_ID": "com.istuart.recipeapp.recipeApp",
+  "USDA_API_KEY": ""
 }

@@ -10,11 +10,15 @@ This repository now includes:
 - A real local SQLite database layer implemented with Drift.
 - Android emulator-ready local setup on this Windows workstation.
 - Local recipe CRUD with persisted ingredients and directions.
-- Recipe detail flows with scaling, calorie sorting, pantry links, and variation duplication.
+- Recipe detail flows with scaling, calorie sorting, pantry links, nested recipes, and variation duplication.
+- Recipe import from pasted text, fetched recipe URLs, and screenshot OCR.
 - Pantry brand and barcode capture.
-- Camera barcode scanning plus Open Food Facts pantry nutrition import.
+- Camera barcode scanning plus Open Food Facts import with USDA fallback nutrition lookup.
+- Persisted pantry product artwork from imported items.
+- Food-log goals, saved meals, smart suggestions, and reusable day plans.
+- Grocery export from pinned recipes, saved meals, and reusable day plans.
 - Universal Quick Add for grocery, pantry, and food-log entry.
-- A local-first sync queue with optional Firebase Auth + Firestore push wiring when cloud config is present.
+- A local-first sync queue with optional Firebase Auth + Firestore push/pull merge wiring when cloud config is present.
 - An adaptive mobile shell with the four primary tabs:
   - Recipes
   - Grocery List
@@ -25,12 +29,15 @@ This repository now includes:
 ## Progress Snapshot
 
 - Local-first recipe, pantry, grocery, and food-log flows are implemented and verified.
-- Pantry items now support camera barcode scanning, pasted barcode lookup, and nutrition import through Open Food Facts.
+- Pantry items now support camera barcode scanning, pasted barcode lookup, nutrition import through Open Food Facts, and USDA fallback lookups.
+- Recipe import now covers plain text, fetched URLs, and screenshot OCR.
+- Food Log now includes macro-aware suggestions plus direct create/edit day-plan flows.
+- Grocery export now includes reusable day plans alongside pinned recipes and saved meals.
 - Universal Quick Add is live from the main shell for grocery, pantry, and food-log entry.
-- Nested recipe and saved-meal nutrition flows are wired through the local database.
-- Optional Firebase sync has a real queue, Sync Center UI, Android/iOS app registration, and project-bound config scaffolding for `nutrichef-recipeapp-6d24f`.
-- The remaining Firebase work is console-side enablement plus cloud pull and merge behavior.
-- Overall alignment to the target product vision is currently estimated at about 65-75%.
+- Nested recipe, saved-meal, and day-plan nutrition flows are wired through the local database.
+- Optional Firebase sync now has a real queue, Sync Center UI, Android/iOS app registration, and pull-first merge coverage for recipes, pantry, grocery, saved meals, day plans, and food log.
+- The remaining Firebase work is mainly console-side enablement and real-device validation.
+- Overall alignment to the target product vision is currently estimated at about 75-85%.
 
 ## Product Direction
 
@@ -102,7 +109,7 @@ The current draft has passed:
 - `flutter analyze`
 - `flutter test`
 - `flutter build apk --debug`
-- Android emulator smoke test across Recipes, Grocery, Pantry, Food Log, Quick Add, and pantry barcode import
+- Android emulator smoke test across Recipes, Grocery, Pantry, Food Log, Quick Add, pantry barcode import, grocery day-plan export, and post-plugin startup checks
 
 The emulator also verified the manual barcode import path end to end. Live camera scanning still needs one real Android device check because the emulator camera backend opens the scanner sheet and permission flow but does not provide a reliable barcode preview.
 
@@ -117,7 +124,7 @@ The emulator also verified the manual barcode import path end to end. Live camer
 ## Near-Term Build Plan
 
 1. Finish real Firebase enablement in the console and validate end-to-end Android sign-in plus Firestore push.
-2. Expand recipe import from pasted text into URL and OCR screenshot flows.
-3. Add cloud pull, merge, and conflict handling on top of the Firestore push queue.
-4. Build the smarter planning layer: meal-plan folders, macro-aware suggestions, and richer organization/sorting.
+2. Validate full pull/merge behavior against real Firebase data on a configured Android device.
+3. Build the next planning layer above day plans: weekly organization, scheduling, and richer plan grouping.
+4. Improve sync diagnostics, conflict visibility, and retry ergonomics.
 5. Add pantry item photo import and richer imported-product image handling on top of the barcode flow.

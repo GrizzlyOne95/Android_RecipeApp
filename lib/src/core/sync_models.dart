@@ -1,4 +1,11 @@
-enum SyncEntityType { recipe, pantryItem, groceryItem, savedMeal, foodLogEntry }
+enum SyncEntityType {
+  recipe,
+  pantryItem,
+  groceryItem,
+  savedMeal,
+  dayPlan,
+  foodLogEntry,
+}
 
 enum SyncChangeType { upsert, delete }
 
@@ -47,6 +54,7 @@ class SyncStatus {
     this.lastLocalChangeAt,
     this.lastSyncedAt,
     this.lastErrorMessage,
+    this.lastConflictMessage,
     this.isSyncing = false,
   });
 
@@ -67,6 +75,7 @@ class SyncStatus {
   final DateTime? lastLocalChangeAt;
   final DateTime? lastSyncedAt;
   final String? lastErrorMessage;
+  final String? lastConflictMessage;
   final bool isSyncing;
   final List<SyncEntityCount> pendingItems;
 
@@ -86,6 +95,7 @@ extension SyncEntityTypeLabel on SyncEntityType {
     SyncEntityType.pantryItem => 'Pantry',
     SyncEntityType.groceryItem => 'Grocery',
     SyncEntityType.savedMeal => 'Saved Meals',
+    SyncEntityType.dayPlan => 'Day Plans',
     SyncEntityType.foodLogEntry => 'Food Log',
   };
 }

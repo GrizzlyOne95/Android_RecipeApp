@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Recipe App uses the camera to scan pantry barcodes and import nutrition details.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Recipe App uses your photo library so you can import recipe screenshots with OCR.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

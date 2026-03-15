@@ -127,19 +127,24 @@ The current repository implementation has moved well beyond the initial shell sl
 - adaptive 4-tab navigation with phone and tablet layouts
 - local SQLite-backed persistence through Drift
 - editable recipe CRUD with linked ingredients, nested recipe nutrition, and saved-meal composition
+- recipe import from pasted text, fetched URLs, and screenshot OCR
 - pantry CRUD with brand and barcode capture
-- camera barcode scanning with Open Food Facts nutrition import
-- grocery export plus manual quick-add flows
+- camera barcode scanning with Open Food Facts plus USDA fallback nutrition import
+- persisted pantry product image URLs for imported product artwork
+- grocery export from pinned recipes, saved meals, and day plans plus manual quick-add flows
 - food-log entry, daily goal rollups, and saved-meal logging
+- food-log suggestion cards that rank saved meals, recipes, and pantry items against remaining goals
+- reusable Food Log day plans that can be captured from a logged day and replayed into today
+- direct Food Log day-plan authoring/editing with linked saved meals, recipes, and pantry items
 - universal quick add from the app shell
-- local-first sync queue and Sync Center UI
+- local-first sync queue, Sync Center UI, and pull-first merge across recipes, pantry, grocery, saved meals, day plans, and food log
 - optional Firebase Auth + Firestore push scaffolding for the existing Firebase project
 
 ## Recommended Next Milestones
 
 1. Complete Firebase console enablement and validate live Android sign-in plus Firestore push.
-2. Add cloud pull, merge, and conflict resolution.
-3. Expand recipe import from plain text into URL and OCR ingestion.
+2. Validate full-entity cloud pull/merge behavior against live Firebase data.
+3. Turn the new Food Log suggestion layer, reusable day plans, and grocery-linked planning flow into fuller meal-planning views and mixed plan assemblies.
 4. Improve sync diagnostics, retry handling, and conflict transparency.
-5. Add pantry item image persistence and richer imported-product media handling.
+5. Add richer pantry media handling such as manual photo capture and local image management.
 6. Add Mac-based iOS sign-in verification once Apple-side setup is available.

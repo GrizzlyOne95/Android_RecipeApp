@@ -117,7 +117,7 @@ class _PantryPageState extends State<PantryPage> {
       initialDraft: initialDraft ?? item?.toDraft(),
       existingItemName: item?.name,
       barcodeImporter:
-          widget.barcodeImporter ?? OpenFoodFactsPantryBarcodeImporter(),
+          widget.barcodeImporter ?? CompositePantryBarcodeImporter(),
       initialImportSummary: initialImportSummary,
       initialImportImageUrl: initialImportImageUrl,
     );
@@ -246,7 +246,8 @@ class _PantryPageState extends State<PantryPage> {
       context,
       repository,
       initialDraft: imported.draft.copyWith(
-        source: 'Barcode scan + Open Food Facts',
+        source: 'Barcode scan + ${imported.sourceLabel}',
+        imageUrl: imported.draft.imageUrl ?? imported.imageUrl,
       ),
       initialImportSummary: imported.referenceSummary,
       initialImportImageUrl: imported.imageUrl,
@@ -257,8 +258,7 @@ class _PantryPageState extends State<PantryPage> {
     BuildContext context,
     String barcode,
   ) async {
-    final importer =
-        widget.barcodeImporter ?? OpenFoodFactsPantryBarcodeImporter();
+    final importer = widget.barcodeImporter ?? CompositePantryBarcodeImporter();
 
     showDialog<void>(
       context: context,
@@ -329,14 +329,12 @@ class _PantryCard extends StatelessWidget {
           runSpacing: 18,
           spacing: 18,
           children: [
-            Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                color: item.accent.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(22),
-              ),
-              child: Icon(Icons.inventory_2, color: item.accent, size: 32),
+            _PantryItemImage(
+              imageUrl: item.imageUrl,
+              accent: item.accent,
+              size: 72,
+              borderRadius: 22,
+              iconSize: 32,
             ),
             ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 320),
@@ -469,6 +467,7 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
   late final TextEditingController _brandController;
   late final TextEditingController _barcodeController;
   late final TextEditingController _quantityLabelController;
+  late final TextEditingController _imageUrlController;
   late final TextEditingController _referenceQuantityController;
   late final TextEditingController _referenceUnitController;
   late final TextEditingController _sourceController;
@@ -504,6 +503,9 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
     _brandController = TextEditingController(text: draft.brand ?? '');
     _barcodeController = TextEditingController(text: draft.barcode ?? '');
     _quantityLabelController = TextEditingController(text: draft.quantityLabel);
+    _imageUrlController = TextEditingController(
+      text: draft.imageUrl ?? widget.initialImportImageUrl ?? '',
+    );
     _referenceQuantityController = TextEditingController(
       text: MeasurementUnits.formatDecimal(draft.referenceUnitQuantity),
     );
@@ -547,7 +549,7 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
     );
     _selectedAccent = draft.accent;
     _importSummary = widget.initialImportSummary;
-    _importImageUrl = widget.initialImportImageUrl;
+    _importImageUrl = widget.initialImportImageUrl ?? draft.imageUrl;
 
     for (final controller in _livePreviewControllers) {
       controller.addListener(_handleDraftChanged);
@@ -571,6 +573,7 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
     _brandController.dispose();
     _barcodeController.dispose();
     _quantityLabelController.dispose();
+    _imageUrlController.dispose();
     _referenceQuantityController.dispose();
     _referenceUnitController.dispose();
     _sourceController.dispose();
@@ -697,6 +700,17 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
                         hintText: '32 oz tub, 3 cans, 1 kg bag',
                       ),
                       validator: _requiredText,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _imageUrlController,
+                      keyboardType: TextInputType.url,
+                      decoration: const InputDecoration(
+                        labelText: 'Product image URL',
+                        hintText: 'https://example.com/product.jpg',
+                        helperText:
+                            'Imported barcode images can be kept, replaced, or cleared here.',
+                      ),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
@@ -937,6 +951,7 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
         name: _nameController.text.trim(),
         brand: _normalizedOptionalText(_brandController.text),
         barcode: _normalizedOptionalText(_barcodeController.text),
+        imageUrl: _normalizedOptionalText(_imageUrlController.text),
         quantityLabel: _quantityLabelController.text.trim(),
         referenceUnitQuantity:
             _parsePositiveDouble(_referenceQuantityController) ?? 1,
@@ -1002,7 +1017,9 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
       _applyImportedDraft(result);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Imported nutrition per ${result.referenceSummary}.'),
+          content: Text(
+            'Imported nutrition from ${result.sourceLabel} per ${result.referenceSummary}.',
+          ),
         ),
       );
     } on PantryBarcodeImportException catch (error) {
@@ -1038,6 +1055,7 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
     _brandController.text = draft.brand ?? '';
     _barcodeController.text = draft.barcode ?? '';
     _quantityLabelController.text = draft.quantityLabel;
+    _imageUrlController.text = draft.imageUrl ?? result.imageUrl ?? '';
     _referenceQuantityController.text = MeasurementUnits.formatDecimal(
       draft.referenceUnitQuantity,
     );
@@ -1064,7 +1082,7 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
     setState(() {
       _selectedAccent = draft.accent;
       _importSummary = result.referenceSummary;
-      _importImageUrl = result.imageUrl;
+      _importImageUrl = draft.imageUrl ?? result.imageUrl;
     });
   }
 }
@@ -1146,6 +1164,51 @@ class _MetricField extends StatelessWidget {
   }
 }
 
+class _PantryItemImage extends StatelessWidget {
+  const _PantryItemImage({
+    required this.imageUrl,
+    required this.accent,
+    required this.size,
+    required this.borderRadius,
+    required this.iconSize,
+  });
+
+  final String? imageUrl;
+  final Color accent;
+  final double size;
+  final double borderRadius;
+  final double iconSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final resolvedImageUrl = _normalizedNetworkImageUrl(imageUrl);
+    final fallback = Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(borderRadius),
+      ),
+      child: Icon(Icons.inventory_2, color: accent, size: iconSize),
+    );
+
+    if (resolvedImageUrl == null) {
+      return fallback;
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(borderRadius),
+      child: Image.network(
+        resolvedImageUrl,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => fallback,
+      ),
+    );
+  }
+}
+
 class _ImportedBarcodePreview extends StatelessWidget {
   const _ImportedBarcodePreview({this.summary, this.imageUrl});
 
@@ -1166,30 +1229,13 @@ class _ImportedBarcodePreview extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (imageUrl != null)
-            ClipRRect(
-              borderRadius: BorderRadius.circular(14),
-              child: Image.network(
-                imageUrl!,
-                width: 64,
-                height: 64,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const SizedBox(
-                  width: 64,
-                  height: 64,
-                  child: ColoredBox(color: Color(0xFFE6DED1)),
-                ),
-              ),
-            )
-          else
-            const SizedBox(
-              width: 64,
-              height: 64,
-              child: DecoratedBox(
-                decoration: BoxDecoration(color: Color(0xFFE6DED1)),
-                child: Icon(Icons.inventory_2_outlined),
-              ),
-            ),
+          _PantryItemImage(
+            imageUrl: imageUrl,
+            accent: const Color(0xFF7B5138),
+            size: 64,
+            borderRadius: 14,
+            iconSize: 28,
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -1202,8 +1248,8 @@ class _ImportedBarcodePreview extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   summary == null
-                      ? 'Product details pulled from Open Food Facts.'
-                      : 'Nutrition imported per $summary from Open Food Facts.',
+                      ? 'Product details pulled from barcode import.'
+                      : 'Nutrition imported per $summary from barcode lookup.',
                   style: theme.textTheme.bodyMedium,
                 ),
               ],
@@ -1213,6 +1259,18 @@ class _ImportedBarcodePreview extends StatelessWidget {
       ),
     );
   }
+}
+
+String? _normalizedNetworkImageUrl(String? value) {
+  final trimmed = value?.trim() ?? '';
+  if (trimmed.isEmpty) {
+    return null;
+  }
+  final uri = Uri.tryParse(trimmed);
+  if (uri == null || !(uri.scheme == 'http' || uri.scheme == 'https')) {
+    return null;
+  }
+  return trimmed;
 }
 
 class _BarcodeLookupDialog extends StatelessWidget {

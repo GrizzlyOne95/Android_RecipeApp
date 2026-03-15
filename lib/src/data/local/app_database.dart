@@ -74,6 +74,7 @@ class PantryItemsTable extends Table {
   IntColumn get accentHex => integer()();
   TextColumn get barcode => text().nullable()();
   TextColumn get brand => text().nullable()();
+  TextColumn get imageUrl => text().nullable()();
   IntColumn get calories => integer()();
   IntColumn get protein => integer()();
   IntColumn get carbs => integer()();
@@ -82,6 +83,7 @@ class PantryItemsTable extends Table {
   IntColumn get sodium => integer()();
   IntColumn get sugar => integer()();
   DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime().nullable()();
 
   @override
   Set<Column<Object>> get primaryKey => {id};
@@ -138,6 +140,35 @@ class SavedMealComponents extends Table {
       text().withDefault(const Constant('freeform'))();
   TextColumn get linkedPantryItemId => text().nullable()();
   TextColumn get linkedRecipeId => text().nullable()();
+}
+
+class DayPlansTable extends Table {
+  TextColumn get id => text()();
+  TextColumn get title => text()();
+  TextColumn get note => text()();
+  DateTimeColumn get createdAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+class DayPlanEntriesTable extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get planId => text().references(DayPlansTable, #id)();
+  IntColumn get position => integer()();
+  TextColumn get mealSlot => text()();
+  TextColumn get sourceType => text()();
+  TextColumn get sourceId => text()();
+  TextColumn get title => text()();
+  TextColumn get quantity => text()();
+  TextColumn get unit => text()();
+  IntColumn get calories => integer()();
+  IntColumn get protein => integer()();
+  IntColumn get carbs => integer()();
+  IntColumn get fat => integer()();
+  IntColumn get fiber => integer()();
+  IntColumn get sodium => integer()();
+  IntColumn get sugar => integer()();
 }
 
 class FoodLogEntriesTable extends Table {
@@ -201,6 +232,8 @@ class DailyGoalsTable extends Table {
     SavedMealsTable,
     SavedMealAdjustments,
     SavedMealComponents,
+    DayPlansTable,
+    DayPlanEntriesTable,
     FoodLogEntriesTable,
     AppSettingsTable,
     SyncQueueTable,
@@ -213,7 +246,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 13;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -279,6 +312,20 @@ class AppDatabase extends _$AppDatabase {
           );
         }
       }
+      if (from < 11) {
+        if (!await _tableHasColumn('pantry_items_table', 'image_url')) {
+          await m.addColumn(pantryItemsTable, pantryItemsTable.imageUrl);
+        }
+      }
+      if (from < 12) {
+        if (!await _tableHasColumn('pantry_items_table', 'updated_at')) {
+          await m.addColumn(pantryItemsTable, pantryItemsTable.updatedAt);
+        }
+      }
+      if (from < 13) {
+        await m.createTable(dayPlansTable);
+        await m.createTable(dayPlanEntriesTable);
+      }
     },
   );
 
@@ -289,6 +336,7 @@ class AppDatabase extends _$AppDatabase {
       grocerySectionsTable,
     ).get()).isEmpty;
     final shouldSeedSavedMeals = (await select(savedMealsTable).get()).isEmpty;
+    final shouldSeedDayPlans = (await select(dayPlansTable).get()).isEmpty;
     final shouldSeedGoals = (await select(dailyGoalsTable).get()).isEmpty;
     final shouldSeedFoodLog = (await select(foodLogEntriesTable).get()).isEmpty;
 
@@ -296,6 +344,7 @@ class AppDatabase extends _$AppDatabase {
         !shouldSeedPantry &&
         !shouldSeedGrocery &&
         !shouldSeedSavedMeals &&
+        !shouldSeedDayPlans &&
         !shouldSeedGoals &&
         !shouldSeedFoodLog) {
       return;
@@ -318,6 +367,10 @@ class AppDatabase extends _$AppDatabase {
 
       if (shouldSeedSavedMeals) {
         await _seedSavedMeals(now);
+      }
+
+      if (shouldSeedDayPlans) {
+        await _seedDayPlans(now);
       }
 
       if (shouldSeedGoals) {
@@ -425,6 +478,7 @@ class AppDatabase extends _$AppDatabase {
           accentHex: item.accent.toARGB32(),
           barcode: Value(item.barcode),
           brand: Value(item.brand),
+          imageUrl: Value(item.imageUrl),
           calories: item.nutrition.calories,
           protein: item.nutrition.protein,
           carbs: item.nutrition.carbs,
@@ -433,6 +487,7 @@ class AppDatabase extends _$AppDatabase {
           sodium: item.nutrition.sodium,
           sugar: item.nutrition.sugar,
           createdAt: now,
+          updatedAt: Value(now),
         ),
       );
     }
@@ -523,6 +578,45 @@ class AppDatabase extends _$AppDatabase {
             componentType: Value(component.linkType.name),
             linkedPantryItemId: Value(component.linkedPantryItemId),
             linkedRecipeId: Value(component.linkedRecipeId),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _seedDayPlans(DateTime now) async {
+    for (var index = 0; index < SeedData.dayPlans.length; index++) {
+      final plan = SeedData.dayPlans[index];
+      final planId = 'day_plan_seed_$index';
+
+      await into(dayPlansTable).insert(
+        DayPlansTableCompanion.insert(
+          id: planId,
+          title: plan.name,
+          note: plan.note,
+          createdAt: now,
+        ),
+      );
+
+      for (var entryIndex = 0; entryIndex < plan.entries.length; entryIndex++) {
+        final entry = plan.entries[entryIndex];
+        await into(dayPlanEntriesTable).insert(
+          DayPlanEntriesTableCompanion.insert(
+            planId: planId,
+            position: entryIndex,
+            mealSlot: entry.mealSlot.name,
+            sourceType: entry.sourceType.name,
+            sourceId: entry.sourceId,
+            title: entry.title,
+            quantity: entry.quantity,
+            unit: entry.unit,
+            calories: entry.nutrition.calories,
+            protein: entry.nutrition.protein,
+            carbs: entry.nutrition.carbs,
+            fat: entry.nutrition.fat,
+            fiber: entry.nutrition.fiber,
+            sodium: entry.nutrition.sodium,
+            sugar: entry.nutrition.sugar,
           ),
         );
       }

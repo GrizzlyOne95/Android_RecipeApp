@@ -461,6 +461,7 @@ void main() {
         name: 'Measured Cottage Cheese',
         brand: 'Good Culture',
         barcode: '012345678905',
+        imageUrl: 'https://example.com/cottage-cheese.jpg',
         quantityLabel: '24 oz tub',
         referenceUnitQuantity: 0.5,
         referenceUnit: 'serving',
@@ -493,6 +494,7 @@ void main() {
     expect(created.referenceUnitWeightGrams, 113);
     expect(created.brand, 'Good Culture');
     expect(created.barcode, '012345678905');
+    expect(created.imageUrl, 'https://example.com/cottage-cheese.jpg');
     expect(created.nutrition.protein, 14);
 
     await repositories.pantry.savePantryItem(
@@ -500,6 +502,7 @@ void main() {
         name: 'Measured Cottage Cheese',
         brand: null,
         barcode: null,
+        imageUrl: null,
         quantityLabel: '24 oz tub',
         referenceUnitQuantity: 120,
         referenceUnit: 'serving',
@@ -533,6 +536,7 @@ void main() {
     expect(updated.referenceUnitWeightGrams, 120);
     expect(updated.brand, isNull);
     expect(updated.barcode, isNull);
+    expect(updated.imageUrl, isNull);
 
     await repositories.pantry.deletePantryItem(created.id);
 
@@ -653,6 +657,613 @@ void main() {
       final failedStatus = await repositories.sync.watchStatus().first;
       expect(failedStatus.lastErrorMessage, contains('not configured'));
       expect(failedStatus.isConnected, isFalse);
+    },
+  );
+
+  test(
+    'sync repository pulls remote pantry items into local storage',
+    () async {
+      final database = AppDatabase.forTesting(NativeDatabase.memory());
+      final gateway = _FakeCloudSyncGateway(isAvailable: true);
+      gateway.remoteChanges.add(
+        CloudSyncRemoteChange(
+          entityType: SyncEntityType.pantryItem,
+          entityId: 'pantry_remote_pb',
+          changeType: SyncChangeType.upsert,
+          changedAt: DateTime(2026, 3, 14, 12, 0),
+          payload: const {
+            'id': 'pantry_remote_pb',
+            'title': 'Remote Peanut Butter',
+            'quantityLabel': '16 oz jar',
+            'referenceUnitQuantity': 2.0,
+            'referenceUnit': 'tbsp',
+            'referenceUnitWeightGrams': 32.0,
+            'source': 'Cloud import',
+            'accentHex': 4283065970,
+            'barcode': '050000123456',
+            'brand': 'Remote Brand',
+            'imageUrl': 'https://example.com/remote-pb.jpg',
+            'nutrition': {
+              'calories': 190,
+              'protein': 7,
+              'carbs': 8,
+              'fat': 16,
+              'fiber': 2,
+              'sodium': 140,
+              'sugar': 3,
+            },
+            'createdAt': '2026-03-14T12:00:00.000',
+            'updatedAt': '2026-03-14T12:00:00.000',
+          },
+        ),
+      );
+      final repositories = AppRepositories(database, cloudSyncGateway: gateway);
+      addTearDown(database.close);
+
+      await repositories.initialize();
+
+      final result = await repositories.sync.connectGoogleAccount();
+      expect(result.isSuccess, isTrue);
+
+      final pantryItems = await repositories.pantry.watchPantryItems().first;
+      final remoteItem = pantryItems.firstWhere(
+        (item) => item.id == 'pantry_remote_pb',
+      );
+      final status = await repositories.sync.watchStatus().first;
+
+      expect(remoteItem.name, 'Remote Peanut Butter');
+      expect(remoteItem.imageUrl, 'https://example.com/remote-pb.jpg');
+      expect(remoteItem.referenceUnit, 'tbsp');
+      expect(remoteItem.referenceUnitQuantity, 2);
+      expect(status.pendingChangeCount, 0);
+      expect(status.lastConflictMessage, isNull);
+      expect(gateway.appliedMutations, isEmpty);
+    },
+  );
+
+  test(
+    'sync repository lets a newer cloud recipe replace an older local pending edit',
+    () async {
+      final database = AppDatabase.forTesting(NativeDatabase.memory());
+      final gateway = _FakeCloudSyncGateway(isAvailable: true);
+      final repositories = AppRepositories(database, cloudSyncGateway: gateway);
+      addTearDown(database.close);
+
+      await repositories.initialize();
+
+      await repositories.recipes.saveRecipe(
+        const RecipeDraft(
+          name: 'Conflict Chili',
+          versionLabel: 'Local draft',
+          servings: 4,
+          note: 'Local change',
+          tags: ['Dinner'],
+          isPinned: false,
+          nutrition: NutritionSnapshot(
+            calories: 410,
+            protein: 26,
+            carbs: 30,
+            fat: 18,
+            fiber: 6,
+            sodium: 640,
+            sugar: 5,
+          ),
+          ingredients: [
+            RecipeIngredientDraft(
+              quantity: '1',
+              unit: 'lb',
+              item: 'ground turkey',
+              preparation: '',
+            ),
+          ],
+          directions: ['Brown the turkey.'],
+        ),
+      );
+
+      final localRecipe = (await repositories.recipes.watchRecipes().first)
+          .firstWhere((recipe) => recipe.name == 'Conflict Chili');
+
+      gateway.remoteChanges.add(
+        CloudSyncRemoteChange(
+          entityType: SyncEntityType.recipe,
+          entityId: localRecipe.id,
+          changeType: SyncChangeType.upsert,
+          changedAt: DateTime.now().add(const Duration(minutes: 5)),
+          payload: {
+            'id': localRecipe.id,
+            'title': 'Conflict Chili',
+            'versionLabel': 'Cloud version',
+            'notes': 'Cloud edit wins',
+            'servings': 6,
+            'isPinned': true,
+            'sortCalories': 360,
+            'nutrition': const {
+              'calories': 360,
+              'protein': 28,
+              'carbs': 24,
+              'fat': 14,
+              'fiber': 7,
+              'sodium': 590,
+              'sugar': 4,
+            },
+            'createdAt': DateTime(2026, 3, 14, 9, 0).toIso8601String(),
+            'updatedAt': DateTime(2026, 3, 14, 13, 0).toIso8601String(),
+            'tags': const [
+              {'label': 'Dinner', 'position': 0},
+              {'label': 'Cloud', 'position': 1},
+            ],
+            'ingredients': const [
+              {
+                'position': 0,
+                'quantity': '2',
+                'unit': 'cups',
+                'item': 'beans',
+                'preparation': '',
+                'ingredientType': 'freeform',
+                'linkedPantryItemId': null,
+                'linkedRecipeId': null,
+              },
+            ],
+            'directions': const [
+              {'position': 0, 'instruction': 'Simmer everything together.'},
+            ],
+          },
+        ),
+      );
+
+      final result = await repositories.sync.connectGoogleAccount();
+      expect(result.isSuccess, isTrue);
+
+      final draft = await repositories.recipes.getRecipeDraft(localRecipe.id);
+      final status = await repositories.sync.watchStatus().first;
+
+      expect(draft.versionLabel, 'Cloud version');
+      expect(draft.servings, 6);
+      expect(draft.note, 'Cloud edit wins');
+      expect(draft.ingredients.single.item, 'beans');
+      expect(status.pendingChangeCount, 0);
+      expect(status.lastConflictMessage, contains('Cloud recipe change won'));
+      expect(gateway.appliedMutations, isEmpty);
+    },
+  );
+
+  test('sync repository pulls remote grocery items into local storage', () async {
+    final database = AppDatabase.forTesting(NativeDatabase.memory());
+    final gateway = _FakeCloudSyncGateway(isAvailable: true);
+    gateway.remoteChanges.addAll([
+      CloudSyncRemoteChange(
+        entityType: SyncEntityType.groceryItem,
+        entityId: '90210',
+        changeType: SyncChangeType.upsert,
+        changedAt: DateTime(2026, 3, 14, 12, 15),
+        payload: {
+          'id': '90210',
+          'sectionId': 'remote_section_produce',
+          'sectionTitle': 'Produce',
+          'label':
+              '${Uri.encodeComponent('Lemons')}||${Uri.encodeComponent('2 lb')}',
+          'position': 0,
+          'isChecked': true,
+          'isGeneratedState': false,
+        },
+      ),
+      CloudSyncRemoteChange(
+        entityType: SyncEntityType.groceryItem,
+        entityId: 'pantry:pantry_1',
+        changeType: SyncChangeType.upsert,
+        changedAt: DateTime(2026, 3, 14, 12, 20),
+        payload: {
+          'id': 'pantry:pantry_1',
+          'sectionId': '__grocery_generated_state__',
+          'sectionTitle': 'Generated State',
+          'label': 'pantry:pantry_1',
+          'position': 1,
+          'isChecked': true,
+          'isGeneratedState': true,
+        },
+      ),
+    ]);
+    final repositories = AppRepositories(database, cloudSyncGateway: gateway);
+    addTearDown(database.close);
+
+    await repositories.initialize();
+
+    final result = await repositories.sync.connectGoogleAccount();
+    expect(result.isSuccess, isTrue);
+
+    final sections = await repositories.grocery.watchGrocerySections().first;
+    final produceSection = sections.firstWhere(
+      (section) => section.title == 'Produce',
+    );
+    final manualItem = produceSection.items.single;
+    final generatedStateRows =
+        await (database.select(database.groceryItemsTable)..where(
+              (table) => table.sectionId.equals('__grocery_generated_state__'),
+            ))
+            .get();
+    final generatedStateRow = generatedStateRows
+        .cast<GroceryItemsTableData?>()
+        .firstWhere(
+          (row) => row?.label == 'pantry:pantry_1',
+          orElse: () => null,
+        );
+
+    expect(manualItem.label, 'Lemons');
+    expect(manualItem.detail, '2 lb');
+    expect(manualItem.isChecked, isTrue);
+    expect(generatedStateRow, isNotNull);
+    expect(generatedStateRow?.isChecked, isTrue);
+  });
+
+  test('sync repository pulls remote saved meals into local storage', () async {
+    final database = AppDatabase.forTesting(NativeDatabase.memory());
+    final gateway = _FakeCloudSyncGateway(isAvailable: true);
+    gateway.remoteChanges.add(
+      CloudSyncRemoteChange(
+        entityType: SyncEntityType.savedMeal,
+        entityId: 'saved_meal_remote_bowl',
+        changeType: SyncChangeType.upsert,
+        changedAt: DateTime(2026, 3, 14, 12, 30),
+        payload: {
+          'id': 'saved_meal_remote_bowl',
+          'title': 'Remote Lunch Bowl',
+          'nutrition': {
+            'calories': 520,
+            'protein': 34,
+            'carbs': 42,
+            'fat': 18,
+            'fiber': 8,
+            'sodium': 610,
+            'sugar': 6,
+          },
+          'createdAt': '2026-03-14T12:30:00.000',
+          'adjustments': [
+            {'label': 'Extra herbs', 'position': 0},
+          ],
+          'components': [
+            {
+              'position': 0,
+              'quantity': '1',
+              'unit': 'cup',
+              'item': 'Cooked farro',
+              'componentType': 'freeform',
+              'linkedPantryItemId': null,
+              'linkedRecipeId': null,
+            },
+          ],
+        },
+      ),
+    );
+    final repositories = AppRepositories(database, cloudSyncGateway: gateway);
+    addTearDown(database.close);
+
+    await repositories.initialize();
+
+    final result = await repositories.sync.connectGoogleAccount();
+    expect(result.isSuccess, isTrue);
+
+    final savedMeals = await repositories.foodLog.watchSavedMeals().first;
+    final remoteMeal = savedMeals.firstWhere(
+      (meal) => meal.id == 'saved_meal_remote_bowl',
+    );
+    final draft = await repositories.foodLog.getSavedMealDraft(remoteMeal.id);
+
+    expect(remoteMeal.name, 'Remote Lunch Bowl');
+    expect(remoteMeal.manualNutrition.calories, 520);
+    expect(draft.adjustments, ['Extra herbs']);
+    expect(draft.components, hasLength(1));
+    expect(draft.components.single.item, 'Cooked farro');
+    expect(draft.components.single.linkType, RecipeIngredientType.freeform);
+  });
+
+  test('sync repository pulls remote day plans into local storage', () async {
+    final database = AppDatabase.forTesting(NativeDatabase.memory());
+    final gateway = _FakeCloudSyncGateway(isAvailable: true);
+    gateway.remoteChanges.add(
+      CloudSyncRemoteChange(
+        entityType: SyncEntityType.dayPlan,
+        entityId: 'day_plan_remote_cut',
+        changeType: SyncChangeType.upsert,
+        changedAt: DateTime(2026, 3, 14, 12, 40),
+        payload: {
+          'id': 'day_plan_remote_cut',
+          'title': 'Remote Cut Day',
+          'note': 'Lower-calorie workday structure.',
+          'createdAt': '2026-03-14T12:40:00.000',
+          'entries': [
+            {
+              'position': 0,
+              'mealSlot': 'breakfast',
+              'sourceType': 'pantryItem',
+              'sourceId': 'pantry_0',
+              'title': 'Greek Yogurt',
+              'quantity': '1',
+              'unit': 'cup',
+              'nutrition': {
+                'calories': 90,
+                'protein': 18,
+                'carbs': 6,
+                'fat': 0,
+                'fiber': 0,
+                'sodium': 65,
+                'sugar': 6,
+              },
+            },
+            {
+              'position': 1,
+              'mealSlot': 'lunch',
+              'sourceType': 'recipe',
+              'sourceId': 'recipe_1',
+              'title': 'Weeknight Turkey Chili',
+              'quantity': '1',
+              'unit': 'serving',
+              'nutrition': {
+                'calories': 328,
+                'protein': 29,
+                'carbs': 22,
+                'fat': 13,
+                'fiber': 8,
+                'sodium': 560,
+                'sugar': 5,
+              },
+            },
+          ],
+        },
+      ),
+    );
+    final repositories = AppRepositories(database, cloudSyncGateway: gateway);
+    addTearDown(database.close);
+
+    await repositories.initialize();
+
+    final result = await repositories.sync.connectGoogleAccount();
+    expect(result.isSuccess, isTrue);
+
+    final dayPlans = await repositories.foodLog.watchDayPlans().first;
+    final remotePlan = dayPlans.firstWhere(
+      (plan) => plan.id == 'day_plan_remote_cut',
+    );
+
+    expect(remotePlan.name, 'Remote Cut Day');
+    expect(remotePlan.note, 'Lower-calorie workday structure.');
+    expect(remotePlan.entries, hasLength(2));
+    expect(remotePlan.entries.first.mealSlot, FoodLogMealSlot.breakfast);
+    expect(remotePlan.entries.first.title, 'Greek Yogurt');
+    expect(remotePlan.nutrition.calories, 418);
+  });
+
+  test(
+    'sync repository pulls remote food log entries into local storage',
+    () async {
+      final database = AppDatabase.forTesting(NativeDatabase.memory());
+      final gateway = _FakeCloudSyncGateway(isAvailable: true);
+      gateway.remoteChanges.add(
+        CloudSyncRemoteChange(
+          entityType: SyncEntityType.foodLogEntry,
+          entityId: 'food_log_remote_breakfast',
+          changeType: SyncChangeType.upsert,
+          changedAt: DateTime(2026, 3, 13, 12, 45),
+          payload: {
+            'id': 'food_log_remote_breakfast',
+            'entryDate': '2026-03-13',
+            'mealSlot': 'breakfast',
+            'sourceType': 'pantryItem',
+            'sourceId': 'pantry_0',
+            'title': 'Remote Yogurt',
+            'quantity': '1',
+            'unit': 'cup',
+            'nutrition': {
+              'calories': 140,
+              'protein': 23,
+              'carbs': 9,
+              'fat': 0,
+              'fiber': 0,
+              'sodium': 80,
+              'sugar': 7,
+            },
+            'createdAt': '2026-03-13T12:45:00.000',
+          },
+        ),
+      );
+      final repositories = AppRepositories(database, cloudSyncGateway: gateway);
+      addTearDown(database.close);
+
+      await repositories.initialize();
+
+      final result = await repositories.sync.connectGoogleAccount();
+      expect(result.isSuccess, isTrue);
+
+      final snapshot = await repositories.foodLog.watchSnapshot().first;
+      final entry = snapshot.entries.firstWhere(
+        (item) => item.id == 'food_log_remote_breakfast',
+      );
+
+      expect(entry.title, 'Remote Yogurt');
+      expect(entry.mealSlot, FoodLogMealSlot.breakfast);
+      expect(entry.sourceType, FoodLogEntrySourceType.pantryItem);
+      expect(entry.nutrition.calories, 140);
+      expect(entry.quantity, '1');
+      expect(entry.unit, 'cup');
+    },
+  );
+
+  test('food log day plans can be saved and applied to today', () async {
+    final database = AppDatabase.forTesting(NativeDatabase.memory());
+    final repositories = AppRepositories(database);
+    addTearDown(database.close);
+
+    await repositories.initialize();
+
+    await repositories.foodLog.saveDayPlan(
+      const DayPlanDraft(
+        name: 'Lean Training Day',
+        note: 'Protein-forward weekday routine.',
+        entries: [
+          DayPlanEntryDraft(
+            mealSlot: FoodLogMealSlot.breakfast,
+            sourceType: FoodLogEntrySourceType.pantryItem,
+            sourceId: 'pantry_0',
+            title: 'Nonfat Greek Yogurt',
+            quantity: '1',
+            unit: 'cup',
+            nutrition: NutritionSnapshot(
+              calories: 90,
+              protein: 18,
+              carbs: 6,
+              fat: 0,
+              fiber: 0,
+              sodium: 65,
+              sugar: 6,
+            ),
+          ),
+          DayPlanEntryDraft(
+            mealSlot: FoodLogMealSlot.lunch,
+            sourceType: FoodLogEntrySourceType.recipe,
+            sourceId: 'recipe_1',
+            title: 'Weeknight Turkey Chili',
+            quantity: '1',
+            unit: 'serving',
+            nutrition: NutritionSnapshot(
+              calories: 328,
+              protein: 29,
+              carbs: 22,
+              fat: 13,
+              fiber: 8,
+              sodium: 560,
+              sugar: 5,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    final dayPlans = await repositories.foodLog.watchDayPlans().first;
+    final plan = dayPlans.firstWhere(
+      (item) => item.name == 'Lean Training Day',
+    );
+
+    expect(plan.entries, hasLength(2));
+    expect(plan.nutrition.protein, 47);
+
+    await repositories.foodLog.applyDayPlan(plan.id);
+
+    final snapshot = await repositories.foodLog.watchSnapshot().first;
+    final breakfastEntries = snapshot.entries
+        .where((entry) => entry.title == 'Nonfat Greek Yogurt')
+        .toList(growable: false);
+    final lunchEntries = snapshot.entries
+        .where((entry) => entry.title == 'Weeknight Turkey Chili')
+        .toList(growable: false);
+
+    expect(breakfastEntries, isNotEmpty);
+    expect(lunchEntries, isNotEmpty);
+    expect(
+      breakfastEntries.any(
+        (entry) => entry.mealSlot == FoodLogMealSlot.breakfast,
+      ),
+      isTrue,
+    );
+    expect(
+      lunchEntries.any((entry) => entry.mealSlot == FoodLogMealSlot.lunch),
+      isTrue,
+    );
+
+    final draft = await repositories.foodLog.getDayPlanDraft(plan.id);
+    expect(draft.name, 'Lean Training Day');
+    expect(draft.entries, hasLength(2));
+
+    await repositories.foodLog.saveDayPlan(
+      draft.copyWith(
+        note: 'Updated for heavy training days.',
+        entries: [
+          ...draft.entries,
+          const DayPlanEntryDraft(
+            mealSlot: FoodLogMealSlot.snack,
+            sourceType: FoodLogEntrySourceType.pantryItem,
+            sourceId: 'pantry_0',
+            title: 'Nonfat Greek Yogurt',
+            quantity: '0.5',
+            unit: 'serving',
+            nutrition: NutritionSnapshot(
+              calories: 45,
+              protein: 9,
+              carbs: 3,
+              fat: 0,
+              fiber: 0,
+              sodium: 33,
+              sugar: 3,
+            ),
+          ),
+        ],
+      ),
+      existingId: plan.id,
+    );
+
+    final updatedPlan = await repositories.foodLog.watchDayPlans().first.then(
+      (plans) => plans.firstWhere((item) => item.id == plan.id),
+    );
+    expect(updatedPlan.note, 'Updated for heavy training days.');
+    expect(updatedPlan.entries, hasLength(3));
+  });
+
+  test(
+    'food log suggestions favor higher-protein lower-sugar options',
+    () async {
+      final database = AppDatabase.forTesting(NativeDatabase.memory());
+      final repositories = AppRepositories(database);
+      addTearDown(database.close);
+
+      await repositories.initialize();
+
+      await repositories.foodLog.saveSavedMeal(
+        const SavedMealDraft(
+          name: 'Lean Protein Bowl',
+          manualNutrition: NutritionSnapshot(
+            calories: 280,
+            protein: 34,
+            carbs: 22,
+            fat: 7,
+            fiber: 5,
+            sodium: 420,
+            sugar: 4,
+          ),
+          adjustments: [],
+          components: [],
+        ),
+      );
+
+      await repositories.foodLog.saveSavedMeal(
+        const SavedMealDraft(
+          name: 'Dessert Shake',
+          manualNutrition: NutritionSnapshot(
+            calories: 520,
+            protein: 9,
+            carbs: 68,
+            fat: 21,
+            fiber: 1,
+            sodium: 260,
+            sugar: 46,
+          ),
+          adjustments: [],
+          components: [],
+        ),
+      );
+
+      final suggestions = await repositories.foodLog.watchSuggestions().first;
+      final leanIndex = suggestions.indexWhere(
+        (suggestion) => suggestion.target.title == 'Lean Protein Bowl',
+      );
+      final dessertIndex = suggestions.indexWhere(
+        (suggestion) => suggestion.target.title == 'Dessert Shake',
+      );
+      final leanSuggestion = suggestions.firstWhere(
+        (suggestion) => suggestion.target.title == 'Lean Protein Bowl',
+      );
+
+      expect(leanIndex, greaterThanOrEqualTo(0));
+      expect(dessertIndex, equals(-1));
+      expect(leanSuggestion.reason, isNotEmpty);
+      expect(leanSuggestion.score, greaterThan(0));
     },
   );
 
@@ -1000,6 +1611,146 @@ void main() {
     },
   );
 
+  test('grocery repository exports structured day plan ingredients', () async {
+    final database = AppDatabase.forTesting(NativeDatabase.memory());
+    final repositories = AppRepositories(database);
+    addTearDown(database.close);
+
+    await repositories.initialize();
+
+    await repositories.recipes.saveRecipe(
+      const RecipeDraft(
+        name: 'Plan Pasta',
+        versionLabel: 'Day plan test',
+        servings: 1,
+        note: '',
+        tags: ['Dinner'],
+        isPinned: false,
+        nutrition: NutritionSnapshot(
+          calories: 500,
+          protein: 18,
+          carbs: 84,
+          fat: 8,
+          fiber: 6,
+          sodium: 420,
+          sugar: 10,
+        ),
+        ingredients: [
+          RecipeIngredientDraft(
+            quantity: '1',
+            unit: 'lb',
+            item: 'Pasta',
+            preparation: '',
+          ),
+          RecipeIngredientDraft(
+            quantity: '1',
+            unit: 'can',
+            item: 'Diced Tomatoes',
+            preparation: '',
+          ),
+        ],
+        directions: ['Cook pasta and combine with sauce.'],
+      ),
+    );
+
+    final planRecipe = await repositories.recipes.watchRecipes().first.then(
+      (recipes) => recipes.firstWhere((recipe) => recipe.name == 'Plan Pasta'),
+    );
+
+    await repositories.foodLog.saveSavedMeal(
+      SavedMealDraft(
+        name: 'Dinner Combo',
+        manualNutrition: NutritionSnapshot.zero,
+        adjustments: const [],
+        components: [
+          SavedMealComponentDraft(
+            quantity: '1',
+            unit: 'serving',
+            item: 'Plan Pasta',
+            linkType: RecipeIngredientType.recipeReference,
+            linkedRecipeId: planRecipe.id,
+          ),
+        ],
+      ),
+    );
+
+    final savedMeal = await repositories.foodLog.watchSavedMeals().first.then(
+      (meals) => meals.firstWhere((meal) => meal.name == 'Dinner Combo'),
+    );
+
+    await repositories.foodLog.saveDayPlan(
+      DayPlanDraft(
+        name: 'Weekday Rotation',
+        note: 'Lunch and dinner repeat the same base.',
+        entries: [
+          DayPlanEntryDraft(
+            mealSlot: FoodLogMealSlot.lunch,
+            sourceType: FoodLogEntrySourceType.savedMeal,
+            sourceId: savedMeal.id,
+            title: savedMeal.name,
+            quantity: '1',
+            unit: 'meal',
+            nutrition: savedMeal.nutrition,
+          ),
+          DayPlanEntryDraft(
+            mealSlot: FoodLogMealSlot.dinner,
+            sourceType: FoodLogEntrySourceType.recipe,
+            sourceId: planRecipe.id,
+            title: planRecipe.name,
+            quantity: '1',
+            unit: 'serving',
+            nutrition: planRecipe.nutrition,
+          ),
+          const DayPlanEntryDraft(
+            mealSlot: FoodLogMealSlot.snack,
+            sourceType: FoodLogEntrySourceType.pantryItem,
+            sourceId: 'pantry_0',
+            title: 'Nonfat Greek Yogurt',
+            quantity: '1',
+            unit: 'serving',
+            nutrition: NutritionSnapshot(
+              calories: 90,
+              protein: 18,
+              carbs: 6,
+              fat: 0,
+              fiber: 0,
+              sodium: 65,
+              sugar: 6,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    final sections = await repositories.grocery.watchGrocerySections().first;
+    final dayPlansSection = sections.firstWhere(
+      (section) => section.title == 'Day Plans',
+    );
+
+    final pasta = dayPlansSection.items.firstWhere(
+      (item) => item.label == 'Pasta',
+    );
+    final tomatoes = dayPlansSection.items.firstWhere(
+      (item) => item.label == 'Diced Tomatoes',
+    );
+    final yogurt = dayPlansSection.items.firstWhere(
+      (item) => item.label == 'Nonfat Greek Yogurt',
+    );
+
+    expect(pasta.detail, '2 lb');
+    expect(
+      pasta.sourceSummary,
+      'Weekday Rotation • Dinner, Weekday Rotation • Lunch',
+    );
+    expect(tomatoes.detail, '2 can');
+    expect(
+      tomatoes.sourceSummary,
+      'Weekday Rotation • Dinner, Weekday Rotation • Lunch',
+    );
+    expect(yogurt.detail, '1.5 serving');
+    expect(yogurt.sourceSummary, contains('Weekday Rotation • Snack'));
+  });
+
   test(
     'grocery repository persists export settings manual items and checked state',
     () async {
@@ -1052,12 +1803,14 @@ void main() {
         const GroceryExportSettings(
           includePinnedRecipes: false,
           includeSavedMeals: false,
+          includeDayPlans: false,
         ),
       );
 
       final settings = await repositories.grocery.watchExportSettings().first;
       expect(settings.includePinnedRecipes, isFalse);
       expect(settings.includeSavedMeals, isFalse);
+      expect(settings.includeDayPlans, isFalse);
 
       sections = await repositories.grocery.watchGrocerySections().first;
       expect(
@@ -1066,6 +1819,10 @@ void main() {
       );
       expect(
         sections.where((section) => section.title == 'Saved Meals'),
+        isEmpty,
+      );
+      expect(
+        sections.where((section) => section.title == 'Day Plans'),
         isEmpty,
       );
       expect(
@@ -1213,6 +1970,7 @@ class _FakeCloudSyncGateway implements CloudSyncGateway {
 
   final CloudSyncAvailability _availability;
   final List<CloudSyncMutation> appliedMutations = <CloudSyncMutation>[];
+  final List<CloudSyncRemoteChange> remoteChanges = <CloudSyncRemoteChange>[];
   CloudSyncSession _session = const CloudSyncSession(
     isConfigured: false,
     providerLabel: 'Google',
@@ -1265,5 +2023,15 @@ class _FakeCloudSyncGateway implements CloudSyncGateway {
     appliedMutations
       ..clear()
       ..addAll(mutations);
+  }
+
+  @override
+  Future<List<CloudSyncRemoteChange>> fetchRemoteChanges({
+    required String userId,
+  }) async {
+    if (!availability.isAvailable) {
+      throw StateError(availability.message);
+    }
+    return remoteChanges.toList(growable: false);
   }
 }
