@@ -27,7 +27,11 @@ class _RecipeAppState extends State<RecipeApp> {
       _repositories = injectedRepositories;
     } else {
       _ownedDatabase = AppDatabase();
-      _repositories = AppRepositories(_ownedDatabase!);
+      _repositories = AppRepositories(
+        _ownedDatabase!,
+        seedDemoDataOnInitialize: false,
+        nowProvider: DateTime.now,
+      );
     }
     _initialization = _repositories.initialize();
   }

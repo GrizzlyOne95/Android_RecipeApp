@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -6,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/measurement_units.dart';
 import '../../core/mock_data.dart';
+import '../../core/pantry_image_refs.dart';
 import '../../core/sync_models.dart';
 import '../local/app_database.dart';
 import '../sync/cloud_sync_gateway.dart';
@@ -14,7 +16,10 @@ class AppRepositories {
   factory AppRepositories(
     AppDatabase database, {
     CloudSyncGateway? cloudSyncGateway,
+    bool seedDemoDataOnInitialize = true,
+    DateTime Function()? nowProvider,
   }) {
+    final effectiveNowProvider = nowProvider ?? () => SeedData.todayDate;
     final sync = SyncRepository(database, cloudGateway: cloudSyncGateway);
     return AppRepositories._(
       database: database,
@@ -22,7 +27,13 @@ class AppRepositories {
       recipes: RecipesRepository(database, sync),
       pantry: PantryRepository(database, sync),
       grocery: GroceryRepository(database, sync),
-      foodLog: FoodLogRepository(database, sync),
+      foodLog: FoodLogRepository.withNowProvider(
+        database,
+        syncRepository: sync,
+        nowProvider: effectiveNowProvider,
+      ),
+      seedDemoDataOnInitialize: seedDemoDataOnInitialize,
+      nowProvider: effectiveNowProvider,
     );
   }
 
@@ -33,7 +44,27 @@ class AppRepositories {
     required this.pantry,
     required this.grocery,
     required this.foodLog,
-  });
+    required bool seedDemoDataOnInitialize,
+    required DateTime Function() nowProvider,
+  }) : _seedDemoDataOnInitialize = seedDemoDataOnInitialize,
+       _nowProvider = nowProvider;
+
+  final bool _seedDemoDataOnInitialize;
+  final DateTime Function() _nowProvider;
+
+  DateTime get today {
+    final now = _nowProvider();
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  Future<void> initialize() async {
+    if (_seedDemoDataOnInitialize) {
+      await database.seedIfEmpty();
+    } else {
+      await foodLog.ensureDefaultDailyGoals();
+    }
+    await sync.initialize();
+  }
 
   final AppDatabase database;
   final SyncRepository sync;
@@ -41,11 +72,6 @@ class AppRepositories {
   final PantryRepository pantry;
   final GroceryRepository grocery;
   final FoodLogRepository foodLog;
-
-  Future<void> initialize() async {
-    await database.seedIfEmpty();
-    await sync.initialize();
-  }
 }
 
 class SyncRepository {
@@ -61,9 +87,13 @@ class SyncRepository {
   static const _accountIdKey = 'sync.account_id';
   static const _connectedAtKey = 'sync.connected_at';
   static const _lastSyncedAtKey = 'sync.last_synced_at';
+  static const _lastSummaryKey = 'sync.last_summary';
   static const _lastErrorKey = 'sync.last_error';
   static const _lastConflictKey = 'sync.last_conflict';
+  static const _recentErrorsKey = 'sync.recent_errors';
+  static const _recentConflictsKey = 'sync.recent_conflicts';
   static const _syncStateKey = 'sync.state';
+  static const _diagnosticHistoryLimit = 6;
   static const _groceryGeneratedStateSectionTitle =
       '__Generated Grocery State__';
   static const _generatedStateSectionId = '__grocery_generated_state__';
@@ -85,6 +115,7 @@ class SyncRepository {
       final authState = _authStateFromValue(settingsByKey[_authStateKey]);
       final countsByType = <SyncEntityType, int>{};
       DateTime? lastLocalChangeAt;
+      DateTime? oldestPendingChangeAt;
 
       for (final row in queueRows) {
         final entityType = _entityTypeFromName(row.entityType);
@@ -96,6 +127,10 @@ class SyncRepository {
         if (lastLocalChangeAt == null ||
             row.changedAt.isAfter(lastLocalChangeAt)) {
           lastLocalChangeAt = row.changedAt;
+        }
+        if (oldestPendingChangeAt == null ||
+            row.changedAt.isBefore(oldestPendingChangeAt)) {
+          oldestPendingChangeAt = row.changedAt;
         }
       }
 
@@ -123,10 +158,20 @@ class SyncRepository {
         accountId: settingsByKey[_accountIdKey],
         connectedAt: _dateTimeFromString(settingsByKey[_connectedAtKey]),
         lastLocalChangeAt: lastLocalChangeAt,
+        oldestPendingChangeAt: oldestPendingChangeAt,
         lastSyncedAt: _dateTimeFromString(settingsByKey[_lastSyncedAtKey]),
+        lastSyncSummary: _normalizedOptionalText(
+          settingsByKey[_lastSummaryKey],
+        ),
         lastErrorMessage: _normalizedOptionalText(settingsByKey[_lastErrorKey]),
         lastConflictMessage: _normalizedOptionalText(
           settingsByKey[_lastConflictKey],
+        ),
+        recentErrors: _diagnosticEntriesFromJson(
+          settingsByKey[_recentErrorsKey],
+        ),
+        recentConflicts: _diagnosticEntriesFromJson(
+          settingsByKey[_recentConflictsKey],
         ),
         isSyncing: settingsByKey[_syncStateKey] == 'syncing',
         pendingItems: pendingItems,
@@ -240,17 +285,16 @@ class SyncRepository {
       await _clearQueueEntries(queueRows);
 
       final now = DateTime.now();
+      final summary = _syncSummaryMessage(
+        remoteAppliedCount: mergeResult.remoteAppliedCount,
+        conflictCount: mergeResult.conflictCount,
+        pushedMutationCount: mutations.length,
+      );
       await _upsertSetting(_lastSyncedAtKey, now.toIso8601String(), now);
+      await _upsertSetting(_lastSummaryKey, summary, now);
       await _clearSyncError();
 
-      return SyncActionResult(
-        isSuccess: true,
-        message: _syncSummaryMessage(
-          remoteAppliedCount: mergeResult.remoteAppliedCount,
-          conflictCount: mergeResult.conflictCount,
-          pushedMutationCount: mutations.length,
-        ),
-      );
+      return SyncActionResult(isSuccess: true, message: summary);
     } on Object catch (error) {
       return _fail(_syncErrorFrom(error));
     } finally {
@@ -301,6 +345,7 @@ class SyncRepository {
       SyncEntityType.groceryItem => _buildGroceryMutation(row),
       SyncEntityType.savedMeal => _buildSavedMealMutation(row),
       SyncEntityType.dayPlan => _buildDayPlanMutation(row),
+      SyncEntityType.mealPlan => _buildMealPlanMutation(row),
       SyncEntityType.foodLogEntry => _buildFoodLogMutation(row),
     };
   }
@@ -407,7 +452,7 @@ class SyncRepository {
         'accentHex': item.accentHex,
         'barcode': item.barcode,
         'brand': item.brand,
-        'imageUrl': item.imageUrl,
+        'imageUrl': pantryImageUrlForCloud(item.imageUrl),
         'nutrition': _nutritionPayload(
           calories: item.calories,
           protein: item.protein,
@@ -631,6 +676,60 @@ class SyncRepository {
     );
   }
 
+  Future<CloudSyncMutation> _buildMealPlanMutation(
+    SyncQueueTableData row,
+  ) async {
+    final plan = await (_database.select(
+      _database.mealPlansTable,
+    )..where((table) => table.id.equals(row.entityId))).getSingleOrNull();
+    if (plan == null) {
+      return _missingEntityDelete(row, SyncEntityType.mealPlan);
+    }
+
+    final entries =
+        await (_database.select(_database.mealPlanEntriesTable)
+              ..where((table) => table.planId.equals(plan.id))
+              ..orderBy([(table) => OrderingTerm(expression: table.position)]))
+            .get();
+
+    return CloudSyncMutation(
+      entityType: SyncEntityType.mealPlan,
+      entityId: plan.id,
+      changeType: SyncChangeType.upsert,
+      changedAt: row.changedAt,
+      payload: {
+        'id': plan.id,
+        'title': plan.title,
+        'note': plan.note,
+        'folderLabel': plan.folderLabel,
+        'isPinned': plan.isPinned,
+        'createdAt': plan.createdAt.toIso8601String(),
+        'entries': [
+          for (final entry in entries)
+            {
+              'position': entry.position,
+              'daySlot': entry.daySlot,
+              'mealSlot': entry.mealSlot,
+              'sourceType': entry.sourceType,
+              'sourceId': entry.sourceId,
+              'title': entry.title,
+              'quantity': entry.quantity,
+              'unit': entry.unit,
+              'nutrition': _nutritionPayload(
+                calories: entry.calories,
+                protein: entry.protein,
+                carbs: entry.carbs,
+                fat: entry.fat,
+                fiber: entry.fiber,
+                sodium: entry.sodium,
+                sugar: entry.sugar,
+              ),
+            },
+        ],
+      },
+    );
+  }
+
   CloudSyncMutation _missingEntityDelete(
     SyncQueueTableData row,
     SyncEntityType entityType,
@@ -677,7 +776,7 @@ class SyncRepository {
   Future<SyncActionResult> _fail(String message) async {
     final normalizedMessage =
         _normalizedOptionalText(message) ?? 'Sync failed.';
-    await _upsertSetting(_lastErrorKey, normalizedMessage, DateTime.now());
+    await _recordSyncError(normalizedMessage);
     return SyncActionResult(isSuccess: false, message: normalizedMessage);
   }
 
@@ -714,8 +813,25 @@ class SyncRepository {
     return _upsertSetting(_lastErrorKey, null, DateTime.now());
   }
 
-  Future<void> _setConflictSummary(String? message) {
-    return _upsertSetting(_lastConflictKey, message, DateTime.now());
+  Future<void> _recordSyncError(String message) async {
+    final now = DateTime.now();
+    await _upsertSetting(_lastErrorKey, message, now);
+    await _appendDiagnosticHistory(_recentErrorsKey, message, now);
+  }
+
+  Future<void> _setConflictSummary(
+    String? message, {
+    List<String> detailedMessages = const <String>[],
+  }) async {
+    final now = DateTime.now();
+    await _upsertSetting(_lastConflictKey, message, now);
+    for (final detail in detailedMessages) {
+      final normalized = _normalizedOptionalText(detail);
+      if (normalized == null) {
+        continue;
+      }
+      await _appendDiagnosticHistory(_recentConflictsKey, normalized, now);
+    }
   }
 
   Future<_RemoteMergeResult> _mergeRemoteChanges(
@@ -774,6 +890,14 @@ class SyncRepository {
           if (resolution.conflictMessage case final message?) {
             conflicts.add(message);
           }
+        case SyncEntityType.mealPlan:
+          final resolution = await _mergeRemoteMealPlan(change, pendingRow);
+          if (resolution.appliedRemote) {
+            remoteAppliedCount += 1;
+          }
+          if (resolution.conflictMessage case final message?) {
+            conflicts.add(message);
+          }
         case SyncEntityType.foodLogEntry:
           final resolution = await _mergeRemoteFoodLogEntry(change, pendingRow);
           if (resolution.appliedRemote) {
@@ -791,6 +915,7 @@ class SyncRepository {
           : conflicts.length == 1
           ? conflicts.single
           : '${conflicts.length} sync conflicts were resolved during merge. ${conflicts.first}',
+      detailedMessages: conflicts,
     );
 
     return _RemoteMergeResult(
@@ -1018,6 +1143,47 @@ class SyncRepository {
     return const _RemoteResolution(appliedRemote: true);
   }
 
+  Future<_RemoteResolution> _mergeRemoteMealPlan(
+    CloudSyncRemoteChange change,
+    SyncQueueTableData? pendingRow,
+  ) async {
+    final localPlan = await (_database.select(
+      _database.mealPlansTable,
+    )..where((table) => table.id.equals(change.entityId))).getSingleOrNull();
+    final displayLabel =
+        localPlan?.title ??
+        _stringValue(change.payload?['title']) ??
+        change.entityId;
+
+    if (pendingRow != null) {
+      if (change.changedAt.isAfter(pendingRow.changedAt)) {
+        if (change.changeType == SyncChangeType.delete) {
+          await _deleteMealPlanLocally(change.entityId);
+        } else {
+          await _applyRemoteMealPlan(change);
+        }
+        await _removeQueueEntry(SyncEntityType.mealPlan, change.entityId);
+        return _RemoteResolution(
+          appliedRemote: true,
+          conflictMessage:
+              'Cloud meal plan change won over an older local edit for $displayLabel.',
+        );
+      }
+
+      return _RemoteResolution(
+        conflictMessage: 'Kept newer local meal plan edits for $displayLabel.',
+      );
+    }
+
+    if (change.changeType == SyncChangeType.delete) {
+      final deleted = await _deleteMealPlanLocally(change.entityId);
+      return _RemoteResolution(appliedRemote: deleted);
+    }
+
+    await _applyRemoteMealPlan(change);
+    return const _RemoteResolution(appliedRemote: true);
+  }
+
   Future<_RemoteResolution> _mergeRemoteFoodLogEntry(
     CloudSyncRemoteChange change,
     SyncQueueTableData? pendingRow,
@@ -1191,6 +1357,17 @@ class SyncRepository {
         _dateTimeFromDynamic(payload['createdAt']) ?? change.changedAt;
     final updatedAt =
         _dateTimeFromDynamic(payload['updatedAt']) ?? change.changedAt;
+    final existingItem = await (_database.select(
+      _database.pantryItemsTable,
+    )..where((table) => table.id.equals(change.entityId))).getSingleOrNull();
+    final remoteImageUrl = _normalizedOptionalText(
+      _stringValue(payload['imageUrl']),
+    );
+    final mergedImageUrl =
+        remoteImageUrl ??
+        (isLocalPantryImageRef(existingItem?.imageUrl)
+            ? existingItem?.imageUrl
+            : null);
 
     await _database
         .into(_database.pantryItemsTable)
@@ -1226,9 +1403,7 @@ class SyncRepository {
             brand: Value(
               _normalizedOptionalText(_stringValue(payload['brand'])),
             ),
-            imageUrl: Value(
-              _normalizedOptionalText(_stringValue(payload['imageUrl'])),
-            ),
+            imageUrl: Value(mergedImageUrl),
             calories: nutrition.calories,
             protein: nutrition.protein,
             carbs: nutrition.carbs,
@@ -1474,6 +1649,79 @@ class SyncRepository {
     });
   }
 
+  Future<void> _applyRemoteMealPlan(CloudSyncRemoteChange change) async {
+    final payload = change.payload;
+    if (payload == null) {
+      return;
+    }
+
+    final title = _stringValue(payload['title'])?.trim();
+    if (title == null || title.isEmpty) {
+      return;
+    }
+
+    final createdAt =
+        _dateTimeFromDynamic(payload['createdAt']) ?? change.changedAt;
+    final note = _stringValue(payload['note'])?.trim() ?? '';
+    final folderLabel = _normalizedOptionalText(
+      _stringValue(payload['folderLabel']),
+    );
+    final isPinned = payload['isPinned'] == true;
+    final entries = _ingredientPayloads(payload['entries']);
+
+    await _database.transaction(() async {
+      await _database
+          .into(_database.mealPlansTable)
+          .insertOnConflictUpdate(
+            MealPlansTableCompanion.insert(
+              id: change.entityId,
+              title: title,
+              note: note,
+              folderLabel: Value(folderLabel),
+              isPinned: Value(isPinned),
+              createdAt: createdAt,
+            ),
+          );
+
+      await (_database.delete(
+        _database.mealPlanEntriesTable,
+      )..where((table) => table.planId.equals(change.entityId))).go();
+
+      for (var index = 0; index < entries.length; index++) {
+        final entry = entries[index];
+        final nutrition = _nutritionFromPayload(entry['nutrition']);
+        await _database
+            .into(_database.mealPlanEntriesTable)
+            .insert(
+              MealPlanEntriesTableCompanion.insert(
+                planId: change.entityId,
+                position: index,
+                daySlot:
+                    _stringValue(entry['daySlot'])?.trim() ??
+                    MealPlanDaySlot.monday.name,
+                mealSlot:
+                    _stringValue(entry['mealSlot'])?.trim() ??
+                    FoodLogMealSlot.snack.name,
+                sourceType:
+                    _stringValue(entry['sourceType'])?.trim() ??
+                    FoodLogEntrySourceType.savedMeal.name,
+                sourceId: _stringValue(entry['sourceId'])?.trim() ?? '',
+                title: _stringValue(entry['title'])?.trim() ?? '',
+                quantity: _stringValue(entry['quantity'])?.trim() ?? '',
+                unit: _stringValue(entry['unit'])?.trim() ?? '',
+                calories: nutrition.calories,
+                protein: nutrition.protein,
+                carbs: nutrition.carbs,
+                fat: nutrition.fat,
+                fiber: nutrition.fiber,
+                sodium: nutrition.sodium,
+                sugar: nutrition.sugar,
+              ),
+            );
+      }
+    });
+  }
+
   Future<void> _applyRemoteFoodLogEntry(CloudSyncRemoteChange change) async {
     final payload = change.payload;
     if (payload == null) {
@@ -1583,6 +1831,19 @@ class SyncRepository {
       )..where((table) => table.planId.equals(id))).go();
       deletedCount = await (_database.delete(
         _database.dayPlansTable,
+      )..where((table) => table.id.equals(id))).go();
+    });
+    return deletedCount > 0;
+  }
+
+  Future<bool> _deleteMealPlanLocally(String id) async {
+    var deletedCount = 0;
+    await _database.transaction(() async {
+      await (_database.delete(
+        _database.mealPlanEntriesTable,
+      )..where((table) => table.planId.equals(id))).go();
+      deletedCount = await (_database.delete(
+        _database.mealPlansTable,
       )..where((table) => table.id.equals(id))).go();
     });
     return deletedCount > 0;
@@ -1789,6 +2050,35 @@ class SyncRepository {
         );
   }
 
+  Future<void> _appendDiagnosticHistory(
+    String key,
+    String message,
+    DateTime recordedAt,
+  ) async {
+    final existingRow = await (_database.select(
+      _database.appSettingsTable,
+    )..where((table) => table.key.equals(key))).getSingleOrNull();
+    final entries = _diagnosticEntriesFromJson(existingRow?.value);
+    final updatedEntries = [
+      SyncDiagnosticEntry(message: message, recordedAt: recordedAt),
+      ...entries.where((entry) => entry.message != message),
+    ].take(_diagnosticHistoryLimit).toList(growable: false);
+    await _upsertSetting(
+      key,
+      jsonEncode(
+        updatedEntries
+            .map(
+              (entry) => {
+                'message': entry.message,
+                'recordedAt': entry.recordedAt.toIso8601String(),
+              },
+            )
+            .toList(growable: false),
+      ),
+      recordedAt,
+    );
+  }
+
   Future<void> _deleteSetting(String key) {
     return (_database.delete(
       _database.appSettingsTable,
@@ -1821,6 +2111,40 @@ class SyncRepository {
       return null;
     }
     return DateTime.tryParse(value);
+  }
+
+  List<SyncDiagnosticEntry> _diagnosticEntriesFromJson(String? value) {
+    final trimmed = value?.trim() ?? '';
+    if (trimmed.isEmpty) {
+      return const <SyncDiagnosticEntry>[];
+    }
+
+    try {
+      final decoded = jsonDecode(trimmed);
+      if (decoded is! List) {
+        return const <SyncDiagnosticEntry>[];
+      }
+
+      return decoded
+          .whereType<Map>()
+          .map((rawEntry) {
+            final message = _normalizedOptionalText(
+              rawEntry['message'] as String?,
+            );
+            final recordedAt = _dateTimeFromDynamic(rawEntry['recordedAt']);
+            if (message == null || recordedAt == null) {
+              return null;
+            }
+            return SyncDiagnosticEntry(
+              message: message,
+              recordedAt: recordedAt,
+            );
+          })
+          .whereType<SyncDiagnosticEntry>()
+          .toList(growable: false);
+    } on FormatException {
+      return const <SyncDiagnosticEntry>[];
+    }
   }
 
   String _syncErrorFrom(Object error) {
@@ -2660,6 +2984,7 @@ class GroceryRepository {
   static const _settingPinnedRecipes = 'include_pinned_recipes';
   static const _settingSavedMeals = 'include_saved_meals';
   static const _settingDayPlans = 'include_day_plans';
+  static const _settingMealPlans = 'include_meal_plans';
   static const _manualDetailSeparator = '||';
 
   Stream<List<GrocerySection>> watchGrocerySections() {
@@ -2682,6 +3007,10 @@ class GroceryRepository {
     final dayPlansQuery = _database.select(_database.dayPlansTable).watch();
     final dayPlanEntriesQuery = _database
         .select(_database.dayPlanEntriesTable)
+        .watch();
+    final mealPlansQuery = _database.select(_database.mealPlansTable).watch();
+    final mealPlanEntriesQuery = _database
+        .select(_database.mealPlanEntriesTable)
         .watch();
 
     return sectionsQuery
@@ -2786,6 +3115,39 @@ class GroceryRepository {
             dayPlanEntries,
           );
         })
+        .combineLatest(mealPlansQuery, (combined, mealPlans) {
+          return (
+            combined.$1,
+            combined.$2,
+            combined.$3,
+            combined.$4,
+            combined.$5,
+            combined.$6,
+            combined.$7,
+            combined.$8,
+            combined.$9,
+            combined.$10,
+            combined.$11,
+            mealPlans,
+          );
+        })
+        .combineLatest(mealPlanEntriesQuery, (combined, mealPlanEntries) {
+          return (
+            combined.$1,
+            combined.$2,
+            combined.$3,
+            combined.$4,
+            combined.$5,
+            combined.$6,
+            combined.$7,
+            combined.$8,
+            combined.$9,
+            combined.$10,
+            combined.$11,
+            combined.$12,
+            mealPlanEntries,
+          );
+        })
         .map((combined) {
           final itemsBySectionId = <String, List<GroceryItemsTableData>>{};
           for (final item in combined.$2) {
@@ -2836,12 +3198,35 @@ class GroceryRepository {
                 .putIfAbsent(entry.planId, () => <DayPlanEntriesTableData>[])
                 .add(entry);
           }
+          final mealPlanEntriesByPlanId =
+              <String, List<MealPlanEntriesTableData>>{};
+          for (final entry in combined.$13) {
+            mealPlanEntriesByPlanId
+                .putIfAbsent(entry.planId, () => <MealPlanEntriesTableData>[])
+                .add(entry);
+          }
           if (settings.includeDayPlans) {
             exportSections.add(
               _buildDayPlansSection(
                 recipesRepository: combined.$4,
                 plans: combined.$10,
                 entriesByPlanId: dayPlanEntriesByPlanId,
+                savedMealsById: savedMealsById,
+                recipesById: combined.$5,
+                ingredientsByRecipeId: combined.$6,
+                pantryById: combined.$7,
+                componentsByMealId: combined.$9,
+                generatedStateByKey: generatedStateByKey,
+              ),
+            );
+            exportSections.removeWhere((section) => section.items.isEmpty);
+          }
+          if (settings.includeMealPlans) {
+            exportSections.add(
+              _buildMealPlansSection(
+                recipesRepository: combined.$4,
+                plans: combined.$12,
+                entriesByPlanId: mealPlanEntriesByPlanId,
                 savedMealsById: savedMealsById,
                 recipesById: combined.$5,
                 ingredientsByRecipeId: combined.$6,
@@ -2933,6 +3318,16 @@ class GroceryRepository {
             label: _settingDayPlans,
             position: 2,
             isChecked: Value(settings.includeDayPlans),
+          ),
+        );
+    await _database
+        .into(_database.groceryItemsTable)
+        .insert(
+          GroceryItemsTableCompanion.insert(
+            sectionId: _settingsSectionId,
+            label: _settingMealPlans,
+            position: 3,
+            isChecked: Value(settings.includeMealPlans),
           ),
         );
   }
@@ -3117,6 +3512,43 @@ class GroceryRepository {
       }
     }
     return GrocerySection(title: 'Day Plans', items: aggregate.toList());
+  }
+
+  GrocerySection _buildMealPlansSection({
+    required RecipesRepository recipesRepository,
+    required List<MealPlansTableData> plans,
+    required Map<String, List<MealPlanEntriesTableData>> entriesByPlanId,
+    required Map<String, SavedMealsTableData> savedMealsById,
+    required Map<String, Recipe> recipesById,
+    required Map<String, List<RecipeIngredient>> ingredientsByRecipeId,
+    required Map<String, PantryItemsTableData> pantryById,
+    required Map<String, List<SavedMealComponent>> componentsByMealId,
+    required Map<String, bool> generatedStateByKey,
+  }) {
+    final aggregate = _GroceryAggregate();
+    for (final plan in plans.where((plan) => plan.isPinned)) {
+      final planEntries =
+          entriesByPlanId[plan.id] ?? const <MealPlanEntriesTableData>[];
+      for (final entry in planEntries) {
+        _appendMealPlanEntry(
+          aggregate: aggregate,
+          recipesRepository: recipesRepository,
+          entry: entry,
+          planLabel: [
+            if ((plan.folderLabel ?? '').trim().isNotEmpty)
+              plan.folderLabel!.trim(),
+            plan.title,
+          ].join(' • '),
+          savedMealsById: savedMealsById,
+          recipesById: recipesById,
+          ingredientsByRecipeId: ingredientsByRecipeId,
+          pantryById: pantryById,
+          componentsByMealId: componentsByMealId,
+          generatedStateByKey: generatedStateByKey,
+        );
+      }
+    }
+    return GrocerySection(title: 'Meal Plans', items: aggregate.toList());
   }
 
   void _appendRecipeIngredients({
@@ -3490,6 +3922,123 @@ class GroceryRepository {
     }
   }
 
+  void _appendMealPlanEntry({
+    required _GroceryAggregate aggregate,
+    required RecipesRepository recipesRepository,
+    required MealPlanEntriesTableData entry,
+    required String planLabel,
+    required Map<String, SavedMealsTableData> savedMealsById,
+    required Map<String, Recipe> recipesById,
+    required Map<String, List<RecipeIngredient>> ingredientsByRecipeId,
+    required Map<String, PantryItemsTableData> pantryById,
+    required Map<String, List<SavedMealComponent>> componentsByMealId,
+    required Map<String, bool> generatedStateByKey,
+  }) {
+    final quantity = recipesRepository._parseLinkedQuantity(entry.quantity);
+    final sourceLabel =
+        '$planLabel • ${_mealPlanDayLabel(entry.daySlot)} ${_mealSlotLabel(entry.mealSlot)}';
+    final sourceType = FoodLogEntrySourceType.values.firstWhere(
+      (type) => type.name == entry.sourceType,
+      orElse: () => FoodLogEntrySourceType.recipe,
+    );
+
+    switch (sourceType) {
+      case FoodLogEntrySourceType.savedMeal:
+        final meal = savedMealsById[entry.sourceId];
+        final resolution = MeasurementUnits.resolveLinkedReferenceUnits(
+          quantity: quantity,
+          ingredientUnit: entry.unit,
+          referenceUnit: 'meal',
+        );
+        if (meal == null || !resolution.isResolved) {
+          _addDirectContribution(
+            aggregate: aggregate,
+            label: entry.title.trim(),
+            quantity: quantity,
+            unit: entry.unit.trim(),
+            rawQuantity: entry.quantity.trim(),
+            sourceLabel: sourceLabel,
+            isGenerated: true,
+            checkedByKey: generatedStateByKey,
+          );
+          return;
+        }
+        final components =
+            componentsByMealId[meal.id] ?? const <SavedMealComponent>[];
+        for (final component in components) {
+          _appendSavedMealComponent(
+            aggregate: aggregate,
+            recipesRepository: recipesRepository,
+            component: component,
+            mealLabel: sourceLabel,
+            recipesById: recipesById,
+            ingredientsByRecipeId: ingredientsByRecipeId,
+            pantryById: pantryById,
+            generatedStateByKey: generatedStateByKey,
+            quantityScale: resolution.referenceUnits!,
+          );
+        }
+        return;
+      case FoodLogEntrySourceType.recipe:
+        final recipe = recipesById[entry.sourceId];
+        final resolution = MeasurementUnits.resolveLinkedReferenceUnits(
+          quantity: quantity,
+          ingredientUnit: entry.unit,
+          referenceUnit: 'serving',
+        );
+        if (recipe == null || !resolution.isResolved) {
+          _addDirectContribution(
+            aggregate: aggregate,
+            label: entry.title.trim(),
+            quantity: quantity,
+            unit: entry.unit.trim(),
+            rawQuantity: entry.quantity.trim(),
+            sourceLabel: sourceLabel,
+            isGenerated: true,
+            checkedByKey: generatedStateByKey,
+          );
+          return;
+        }
+        _appendRecipeIngredients(
+          aggregate: aggregate,
+          recipesRepository: recipesRepository,
+          recipeId: recipe.id,
+          recipeLabel: sourceLabel,
+          servingsScale: resolution.referenceUnits!,
+          recipesById: recipesById,
+          ingredientsByRecipeId: ingredientsByRecipeId,
+          pantryById: pantryById,
+          generatedStateByKey: generatedStateByKey,
+        );
+        return;
+      case FoodLogEntrySourceType.pantryItem:
+        final pantryItem = pantryById[entry.sourceId];
+        if (pantryItem == null) {
+          _addDirectContribution(
+            aggregate: aggregate,
+            label: entry.title.trim(),
+            quantity: quantity,
+            unit: entry.unit.trim(),
+            rawQuantity: entry.quantity.trim(),
+            sourceLabel: sourceLabel,
+            isGenerated: true,
+            checkedByKey: generatedStateByKey,
+          );
+          return;
+        }
+        _addPantryContribution(
+          aggregate: aggregate,
+          pantryItem: pantryItem,
+          quantity: quantity,
+          ingredientUnit: entry.unit.trim(),
+          rawQuantity: entry.quantity.trim(),
+          sourceLabel: sourceLabel,
+          generatedStateByKey: generatedStateByKey,
+        );
+        return;
+    }
+  }
+
   void _addPantryContribution({
     required _GroceryAggregate aggregate,
     required PantryItemsTableData pantryItem,
@@ -3610,6 +4159,7 @@ class GroceryRepository {
         GroceryExportSettings.defaults.includePinnedRecipes;
     var includeSavedMeals = GroceryExportSettings.defaults.includeSavedMeals;
     var includeDayPlans = GroceryExportSettings.defaults.includeDayPlans;
+    var includeMealPlans = GroceryExportSettings.defaults.includeMealPlans;
     for (final row in rows) {
       switch (row.label) {
         case _settingPinnedRecipes:
@@ -3621,12 +4171,16 @@ class GroceryRepository {
         case _settingDayPlans:
           includeDayPlans = row.isChecked;
           break;
+        case _settingMealPlans:
+          includeMealPlans = row.isChecked;
+          break;
       }
     }
     return GroceryExportSettings(
       includePinnedRecipes: includePinnedRecipes,
       includeSavedMeals: includeSavedMeals,
       includeDayPlans: includeDayPlans,
+      includeMealPlans: includeMealPlans,
     );
   }
 
@@ -3698,6 +4252,19 @@ class GroceryRepository {
     };
   }
 
+  String _mealPlanDayLabel(String daySlot) {
+    return switch (daySlot.trim().toLowerCase()) {
+      'monday' => 'Mon',
+      'tuesday' => 'Tue',
+      'wednesday' => 'Wed',
+      'thursday' => 'Thu',
+      'friday' => 'Fri',
+      'saturday' => 'Sat',
+      'sunday' => 'Sun',
+      _ => 'Day',
+    };
+  }
+
   Future<void> _ensureHiddenSection(String id, String title) async {
     final existing = await (_database.select(
       _database.grocerySectionsTable,
@@ -3722,11 +4289,104 @@ class GroceryRepository {
 }
 
 class FoodLogRepository {
-  FoodLogRepository(this._database, [SyncRepository? syncRepository])
-    : _sync = syncRepository ?? SyncRepository(_database);
+  factory FoodLogRepository(
+    AppDatabase database, [
+    SyncRepository? syncRepository,
+  ]) {
+    return FoodLogRepository._(
+      database,
+      syncRepository ?? SyncRepository(database),
+      () => SeedData.todayDate,
+    );
+  }
+
+  factory FoodLogRepository.withNowProvider(
+    AppDatabase database, {
+    SyncRepository? syncRepository,
+    DateTime Function()? nowProvider,
+  }) {
+    return FoodLogRepository._(
+      database,
+      syncRepository ?? SyncRepository(database),
+      nowProvider ?? () => SeedData.todayDate,
+    );
+  }
+
+  FoodLogRepository._(this._database, this._sync, this._nowProvider);
 
   final AppDatabase _database;
   final SyncRepository _sync;
+  final DateTime Function() _nowProvider;
+
+  static const defaultDailyGoals = <DailyGoal>[
+    DailyGoal(label: 'Calories', consumed: 0, target: 1850),
+    DailyGoal(label: 'Protein', consumed: 0, target: 135),
+    DailyGoal(label: 'Carbs', consumed: 0, target: 180),
+    DailyGoal(label: 'Fat', consumed: 0, target: 70),
+    DailyGoal(label: 'Fiber', consumed: 0, target: 30),
+    DailyGoal(label: 'Sodium', consumed: 0, target: 2300),
+    DailyGoal(label: 'Sugar', consumed: 0, target: 45),
+  ];
+
+  DateTime get today {
+    final now = _nowProvider();
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  Future<void> ensureDefaultDailyGoals() async {
+    final existingGoals = await _database
+        .select(_database.dailyGoalsTable)
+        .get();
+    if (existingGoals.isNotEmpty) {
+      return;
+    }
+
+    await _database.batch((batch) {
+      batch.insertAll(
+        _database.dailyGoalsTable,
+        defaultDailyGoals
+            .map(
+              (goal) => DailyGoalsTableCompanion.insert(
+                label: goal.label,
+                consumed: 0,
+                target: goal.target,
+              ),
+            )
+            .toList(growable: false),
+      );
+    });
+  }
+
+  Future<void> saveDailyGoalTargets(List<DailyGoal> goals) async {
+    final normalizedGoals = goals
+        .map(
+          (goal) => DailyGoal(
+            label: goal.label.trim(),
+            consumed: 0,
+            target: goal.target < 0 ? 0 : goal.target,
+          ),
+        )
+        .where((goal) => goal.label.isNotEmpty)
+        .toList(growable: false);
+    if (normalizedGoals.isEmpty) {
+      return;
+    }
+
+    await _database.transaction(() async {
+      await _database.delete(_database.dailyGoalsTable).go();
+      for (final goal in normalizedGoals) {
+        await _database
+            .into(_database.dailyGoalsTable)
+            .insert(
+              DailyGoalsTableCompanion.insert(
+                label: goal.label,
+                consumed: 0,
+                target: goal.target,
+              ),
+            );
+      }
+    });
+  }
 
   Stream<List<SavedMeal>> watchSavedMeals() {
     final recipeRepository = RecipesRepository(_database);
@@ -3896,6 +4556,58 @@ class FoodLogRepository {
     });
   }
 
+  Stream<List<MealPlan>> watchMealPlans() {
+    final plansQuery =
+        (_database.select(_database.mealPlansTable)..orderBy([
+              (table) => OrderingTerm.desc(table.isPinned),
+              (table) => OrderingTerm.desc(table.createdAt),
+            ]))
+            .watch();
+    final entriesQuery = (_database.select(
+      _database.mealPlanEntriesTable,
+    )..orderBy([(table) => OrderingTerm(expression: table.position)])).watch();
+
+    return plansQuery.combineLatest(entriesQuery, (plans, entries) {
+      final entriesByPlanId = <String, List<MealPlanEntriesTableData>>{};
+      for (final entry in entries) {
+        entriesByPlanId
+            .putIfAbsent(entry.planId, () => <MealPlanEntriesTableData>[])
+            .add(entry);
+      }
+
+      return plans
+          .map(
+            (plan) => MealPlan(
+              id: plan.id,
+              name: plan.title,
+              note: plan.note,
+              folderLabel: plan.folderLabel,
+              isPinned: plan.isPinned,
+              createdAt: plan.createdAt,
+              entries:
+                  (entriesByPlanId[plan.id] ??
+                          const <MealPlanEntriesTableData>[])
+                      .map(
+                        (entry) => MealPlanEntryDraft(
+                          daySlot: _mealPlanDaySlotFromName(entry.daySlot),
+                          mealSlot: _mealSlotFromName(entry.mealSlot),
+                          sourceType: _entrySourceTypeFromName(
+                            entry.sourceType,
+                          ),
+                          sourceId: entry.sourceId,
+                          title: entry.title,
+                          quantity: entry.quantity,
+                          unit: entry.unit,
+                          nutrition: _nutritionFromMealPlanEntryRow(entry),
+                        ),
+                      )
+                      .toList(growable: false),
+            ),
+          )
+          .toList(growable: false);
+    });
+  }
+
   Stream<List<FoodLogEntryTarget>> watchEntryTargets() {
     final recipesRepository = RecipesRepository(_database);
     final pantryRepository = PantryRepository(_database);
@@ -3980,6 +4692,9 @@ class FoodLogRepository {
         .combineLatest(watchDayPlans(), (combined, dayPlans) {
           return (combined.$1, combined.$2, dayPlans);
         })
+        .combineLatest(watchMealPlans(), (combined, mealPlans) {
+          return (combined.$1, combined.$2, combined.$3, mealPlans);
+        })
         .combineLatest(entriesQuery, (combined, entryRows) {
           final consumedNutrition = entryRows
               .map(_nutritionFromFoodLogEntryRow)
@@ -4000,6 +4715,7 @@ class FoodLogRepository {
                 .toList(growable: false),
             savedMeals: combined.$2,
             dayPlans: combined.$3,
+            mealPlans: combined.$4,
             entries: entryRows
                 .map(
                   (entry) => FoodLogEntry(
@@ -4231,6 +4947,138 @@ class FoodLogRepository {
     );
   }
 
+  Future<MealPlanDraft> getMealPlanDraft(String id) async {
+    final plan = await (_database.select(
+      _database.mealPlansTable,
+    )..where((table) => table.id.equals(id))).getSingle();
+    final entries =
+        await (_database.select(_database.mealPlanEntriesTable)
+              ..where((table) => table.planId.equals(id))
+              ..orderBy([(table) => OrderingTerm(expression: table.position)]))
+            .get();
+
+    return MealPlanDraft(
+      name: plan.title,
+      note: plan.note,
+      folderLabel: plan.folderLabel,
+      isPinned: plan.isPinned,
+      entries: entries
+          .map(
+            (entry) => MealPlanEntryDraft(
+              daySlot: _mealPlanDaySlotFromName(entry.daySlot),
+              mealSlot: _mealSlotFromName(entry.mealSlot),
+              sourceType: _entrySourceTypeFromName(entry.sourceType),
+              sourceId: entry.sourceId,
+              title: entry.title,
+              quantity: entry.quantity,
+              unit: entry.unit,
+              nutrition: _nutritionFromMealPlanEntryRow(entry),
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+
+  Future<void> saveMealPlan(MealPlanDraft draft, {String? existingId}) async {
+    final planId =
+        existingId ?? 'meal_plan_${DateTime.now().microsecondsSinceEpoch}';
+    final existingCreatedAt = existingId == null
+        ? null
+        : await (_database.select(_database.mealPlansTable)
+                ..where((table) => table.id.equals(existingId)))
+              .map((row) => row.createdAt)
+              .getSingleOrNull();
+
+    await _database.transaction(() async {
+      await _database
+          .into(_database.mealPlansTable)
+          .insertOnConflictUpdate(
+            MealPlansTableCompanion.insert(
+              id: planId,
+              title: draft.name.trim(),
+              note: draft.note.trim(),
+              folderLabel: Value(_normalizedOptionalText(draft.folderLabel)),
+              isPinned: Value(draft.isPinned),
+              createdAt: existingCreatedAt ?? DateTime.now(),
+            ),
+          );
+
+      await (_database.delete(
+        _database.mealPlanEntriesTable,
+      )..where((table) => table.planId.equals(planId))).go();
+
+      for (var index = 0; index < draft.entries.length; index++) {
+        final entry = draft.entries[index];
+        await _database
+            .into(_database.mealPlanEntriesTable)
+            .insert(
+              MealPlanEntriesTableCompanion.insert(
+                planId: planId,
+                position: index,
+                daySlot: entry.daySlot.name,
+                mealSlot: entry.mealSlot.name,
+                sourceType: entry.sourceType.name,
+                sourceId: entry.sourceId.trim(),
+                title: entry.title.trim(),
+                quantity: entry.quantity.trim(),
+                unit: entry.unit.trim(),
+                calories: entry.nutrition.calories,
+                protein: entry.nutrition.protein,
+                carbs: entry.nutrition.carbs,
+                fat: entry.nutrition.fat,
+                fiber: entry.nutrition.fiber,
+                sodium: entry.nutrition.sodium,
+                sugar: entry.nutrition.sugar,
+              ),
+            );
+      }
+    });
+
+    await _sync.recordChange(
+      entityType: SyncEntityType.mealPlan,
+      entityId: planId,
+      changeType: SyncChangeType.upsert,
+      displayLabel: draft.name.trim(),
+    );
+  }
+
+  Future<int> setMealPlanFolderPinnedState(
+    String? folderLabel,
+    bool isPinned,
+  ) async {
+    final normalizedFolder = _normalizedOptionalText(folderLabel);
+    final matchingPlans =
+        await ((_database.select(_database.mealPlansTable))..where((table) {
+              if (normalizedFolder == null) {
+                return table.folderLabel.isNull();
+              }
+              return table.folderLabel.equals(normalizedFolder);
+            }))
+            .get();
+    if (matchingPlans.isEmpty) {
+      return 0;
+    }
+
+    await _database.transaction(() async {
+      for (final plan in matchingPlans) {
+        await (_database.update(_database.mealPlansTable)
+              ..where((table) => table.id.equals(plan.id)))
+            .write(MealPlansTableCompanion(isPinned: Value(isPinned)));
+      }
+    });
+
+    for (final plan in matchingPlans) {
+      await _sync.recordChange(
+        entityType: SyncEntityType.mealPlan,
+        entityId: plan.id,
+        changeType: SyncChangeType.upsert,
+        displayLabel: plan.title,
+      );
+    }
+
+    return matchingPlans.length;
+  }
+
   Future<void> saveDayPlanFromEntries({
     required String name,
     String note = '',
@@ -4270,7 +5118,7 @@ class FoodLogRepository {
     }
 
     final entryIds = <String>[];
-    final targetDate = date ?? SeedData.todayDate;
+    final targetDate = date ?? today;
     final baseTimestamp = DateTime.now();
 
     await _database.transaction(() async {
@@ -4323,6 +5171,20 @@ class FoodLogRepository {
     )..where((table) => table.id.equals(id))).go();
     await _sync.recordChange(
       entityType: SyncEntityType.dayPlan,
+      entityId: id,
+      changeType: SyncChangeType.delete,
+    );
+  }
+
+  Future<void> deleteMealPlan(String id) async {
+    await (_database.delete(
+      _database.mealPlanEntriesTable,
+    )..where((table) => table.planId.equals(id))).go();
+    await (_database.delete(
+      _database.mealPlansTable,
+    )..where((table) => table.id.equals(id))).go();
+    await _sync.recordChange(
+      entityType: SyncEntityType.mealPlan,
       entityId: id,
       changeType: SyncChangeType.delete,
     );
@@ -4413,6 +5275,20 @@ class FoodLogRepository {
 
   NutritionSnapshot _nutritionFromDayPlanEntryRow(
     DayPlanEntriesTableData entry,
+  ) {
+    return NutritionSnapshot(
+      calories: entry.calories,
+      protein: entry.protein,
+      carbs: entry.carbs,
+      fat: entry.fat,
+      fiber: entry.fiber,
+      sodium: entry.sodium,
+      sugar: entry.sugar,
+    );
+  }
+
+  NutritionSnapshot _nutritionFromMealPlanEntryRow(
+    MealPlanEntriesTableData entry,
   ) {
     return NutritionSnapshot(
       calories: entry.calories,
@@ -4755,7 +5631,19 @@ class FoodLogRepository {
     );
   }
 
-  String get _todayDateKey => _dateKey(SeedData.todayDate);
+  MealPlanDaySlot _mealPlanDaySlotFromName(String value) {
+    return MealPlanDaySlot.values.firstWhere(
+      (slot) => slot.name == value,
+      orElse: () => MealPlanDaySlot.monday,
+    );
+  }
+
+  String? _normalizedOptionalText(String? value) {
+    final trimmed = value?.trim() ?? '';
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  String get _todayDateKey => _dateKey(today);
 
   String _dateKey(DateTime date) {
     return '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
@@ -4764,14 +5652,14 @@ class FoodLogRepository {
   DateTime _dateFromKey(String value) {
     final parts = value.split('-');
     if (parts.length != 3) {
-      return SeedData.todayDate;
+      return today;
     }
 
     final year = int.tryParse(parts[0]);
     final month = int.tryParse(parts[1]);
     final day = int.tryParse(parts[2]);
     if (year == null || month == null || day == null) {
-      return SeedData.todayDate;
+      return today;
     }
     return DateTime(year, month, day);
   }

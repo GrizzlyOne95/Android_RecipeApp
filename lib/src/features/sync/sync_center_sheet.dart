@@ -62,10 +62,28 @@ class _SyncCenterSheet extends StatelessWidget {
                       onShowSetup: () => _openSetupSheet(context),
                     ),
                     const SizedBox(height: 16),
+                    _SyncCoverageCard(status: status),
+                    const SizedBox(height: 16),
+                    if (status.lastSyncSummary case final summary?) ...[
+                      _StatusNoticeCard(
+                        tone: _NoticeTone.info,
+                        title: 'Last Sync Summary',
+                        body: summary,
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     if (!status.isCloudConfigured) ...[
                       _SetupHintCard(onTap: () => _openSetupSheet(context)),
                       const SizedBox(height: 16),
                       const _SetupStatusCard(),
+                      const SizedBox(height: 16),
+                    ],
+                    if (_planningSummary(status) case final summary?) ...[
+                      _StatusNoticeCard(
+                        tone: summary.tone,
+                        title: summary.title,
+                        body: summary.body,
+                      ),
                       const SizedBox(height: 16),
                     ],
                     if (status.lastErrorMessage case final error?) ...[
@@ -85,6 +103,8 @@ class _SyncCenterSheet extends StatelessWidget {
                       const SizedBox(height: 16),
                     ],
                     if (status.pendingItems.isNotEmpty) ...[
+                      _QueueHealthCard(status: status),
+                      const SizedBox(height: 16),
                       Text(
                         'Pending Cloud Queue',
                         style: Theme.of(context).textTheme.titleLarge,
@@ -102,6 +122,11 @@ class _SyncCenterSheet extends StatelessWidget {
                             )
                             .toList(growable: false),
                       ),
+                      const SizedBox(height: 16),
+                    ],
+                    if (status.recentErrors.isNotEmpty ||
+                        status.recentConflicts.isNotEmpty) ...[
+                      _RecentDiagnosticsCard(status: status),
                       const SizedBox(height: 16),
                     ],
                     Text(
@@ -286,6 +311,97 @@ class _SyncStatusCard extends StatelessWidget {
   }
 }
 
+class _SyncCoverageCard extends StatelessWidget {
+  const _SyncCoverageCard({required this.status});
+
+  final SyncStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final coverage = [
+      (SyncEntityType.recipe, 'Recipes'),
+      (SyncEntityType.pantryItem, 'Pantry'),
+      (SyncEntityType.groceryItem, 'Grocery'),
+      (SyncEntityType.savedMeal, 'Saved meals'),
+      (SyncEntityType.dayPlan, 'Day plans'),
+      (SyncEntityType.mealPlan, 'Meal plans'),
+      (SyncEntityType.foodLogEntry, 'Food log'),
+    ];
+    final pendingByType = {
+      for (final item in status.pendingItems) item.entityType: item.count,
+    };
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Cloud Coverage', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 8),
+          Text(
+            'The sync pipeline now covers the full planning surface, including reusable day plans and weekly meal plans.',
+            style: theme.textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: coverage
+                .map(
+                  (item) => _EntityCoveragePill(
+                    icon: item.$1.icon,
+                    label: item.$2,
+                    pendingCount: pendingByType[item.$1] ?? 0,
+                  ),
+                )
+                .toList(growable: false),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QueueHealthCard extends StatelessWidget {
+  const _QueueHealthCard({required this.status});
+
+  final SyncStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final formatter = DateFormat('MMM d, h:mm a');
+    final oldestPending = status.oldestPendingChangeAt;
+    final isStale =
+        oldestPending != null &&
+        DateTime.now().difference(oldestPending) >= const Duration(hours: 6);
+    final tone = status.lastErrorMessage != null
+        ? _NoticeTone.error
+        : isStale
+        ? _NoticeTone.warning
+        : _NoticeTone.info;
+    final oldestLabel = oldestPending == null
+        ? 'Recent local edits are queued for the next successful cloud sync.'
+        : 'Oldest pending change: ${formatter.format(oldestPending)}.';
+    final guidance = status.lastErrorMessage != null
+        ? 'A recent sync failed, so retrying Sync Now should be the first check after reviewing the error.'
+        : isStale
+        ? 'Some changes have been waiting a while. If cloud sync is connected, a manual Sync Now is worth checking.'
+        : 'Queue activity looks healthy and will upload on the next sync.';
+
+    return _StatusNoticeCard(
+      tone: tone,
+      title: 'Queue Health',
+      body: '$oldestLabel $guidance',
+    );
+  }
+}
+
 class _QueueItemCard extends StatelessWidget {
   const _QueueItemCard({required this.item});
 
@@ -311,7 +427,7 @@ class _QueueItemCard extends StatelessWidget {
               color: const Color(0xFFE7D9BF),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: const Icon(Icons.cloud_upload_outlined),
+            child: Icon(item.entityType.icon),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -359,6 +475,49 @@ class _CountPill extends StatelessWidget {
   }
 }
 
+class _EntityCoveragePill extends StatelessWidget {
+  const _EntityCoveragePill({
+    required this.icon,
+    required this.label,
+    required this.pendingCount,
+  });
+
+  final IconData icon;
+  final String label;
+  final int pendingCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPending = pendingCount > 0;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: hasPending ? const Color(0xFFF7EBCB) : const Color(0xFFF0E6D7),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 2),
+              Text(
+                hasPending ? '$pendingCount pending' : 'Ready',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SetupHintCard extends StatelessWidget {
   const _SetupHintCard({required this.onTap});
 
@@ -370,7 +529,7 @@ class _SetupHintCard extends StatelessWidget {
       tone: _NoticeTone.info,
       title: 'Setup Needed',
       body:
-          'The app can already queue local changes for Firestore. Finish Firebase config once, then Google sign-in and Sync Now will light up here.',
+          'The app can already queue local changes for Firestore, including day plans and meal plans. Finish Firebase config once, then Google sign-in and Sync Now will light up here.',
       actionLabel: 'View setup steps',
       onAction: onTap,
     );
@@ -424,6 +583,176 @@ class _StatusNoticeCard extends StatelessWidget {
 }
 
 enum _NoticeTone { info, warning, error }
+
+class _RecentDiagnosticsCard extends StatelessWidget {
+  const _RecentDiagnosticsCard({required this.status});
+
+  final SyncStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final formatter = DateFormat('MMM d, h:mm a');
+    final entries =
+        <({SyncDiagnosticEntry entry, _NoticeTone tone})>[
+          ...status.recentErrors.map(
+            (entry) => (entry: entry, tone: _NoticeTone.error),
+          ),
+          ...status.recentConflicts.map(
+            (entry) => (entry: entry, tone: _NoticeTone.warning),
+          ),
+        ]..sort(
+          (left, right) =>
+              right.entry.recordedAt.compareTo(left.entry.recordedAt),
+        );
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Recent Sync Activity', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 8),
+          Text(
+            'Recent errors and merge resolutions stay here so you can understand what happened even after the latest sync.',
+            style: theme.textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 14),
+          ...entries
+              .take(6)
+              .map(
+                (item) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _DiagnosticRow(
+                    entry: item.entry,
+                    tone: item.tone,
+                    timestampLabel: formatter.format(item.entry.recordedAt),
+                  ),
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DiagnosticRow extends StatelessWidget {
+  const _DiagnosticRow({
+    required this.entry,
+    required this.tone,
+    required this.timestampLabel,
+  });
+
+  final SyncDiagnosticEntry entry;
+  final _NoticeTone tone;
+  final String timestampLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (tone) {
+      _NoticeTone.info => const Color(0xFFF0E6D7),
+      _NoticeTone.warning => const Color(0xFFF7EBCB),
+      _NoticeTone.error => const Color(0xFFF7DED8),
+    };
+    final icon = switch (tone) {
+      _NoticeTone.info => Icons.info_outline,
+      _NoticeTone.warning => Icons.merge_type_outlined,
+      _NoticeTone.error => Icons.error_outline,
+    };
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(entry.message),
+                const SizedBox(height: 4),
+                Text(
+                  timestampLabel,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+_PlanningSummary? _planningSummary(SyncStatus status) {
+  final pendingByType = {
+    for (final item in status.pendingItems) item.entityType: item.count,
+  };
+  final pendingDayPlans = pendingByType[SyncEntityType.dayPlan] ?? 0;
+  final pendingMealPlans = pendingByType[SyncEntityType.mealPlan] ?? 0;
+  final pendingPlanning = pendingDayPlans + pendingMealPlans;
+
+  if (pendingPlanning > 0) {
+    final parts = <String>[
+      if (pendingDayPlans > 0)
+        '$pendingDayPlans day plan${pendingDayPlans == 1 ? '' : 's'}',
+      if (pendingMealPlans > 0)
+        '$pendingMealPlans meal plan${pendingMealPlans == 1 ? '' : 's'}',
+    ];
+    return _PlanningSummary(
+      tone: _NoticeTone.info,
+      title: 'Planning Changes Waiting For Cloud Sync',
+      body:
+          'Your planning layer is covered too. ${parts.join(' and ')} ${parts.length == 1 ? 'is' : 'are'} queued locally and will upload on the next successful sync.',
+    );
+  }
+
+  if (status.lastConflictMessage != null &&
+      (status.lastConflictMessage!.toLowerCase().contains('day plan') ||
+          status.lastConflictMessage!.toLowerCase().contains('meal plan'))) {
+    return const _PlanningSummary(
+      tone: _NoticeTone.warning,
+      title: 'Planning Merge Activity Detected',
+      body:
+          'A recent merge touched planning data. Review the message below if a day plan or meal plan looked different after sync.',
+    );
+  }
+
+  if (status.isConnected && status.lastSyncedAt != null) {
+    return const _PlanningSummary(
+      tone: _NoticeTone.info,
+      title: 'Planning Sync Coverage Is Active',
+      body:
+          'Day plans and meal plans now move through the same cloud queue and merge flow as recipes, pantry, grocery, and food log data.',
+    );
+  }
+
+  return null;
+}
+
+class _PlanningSummary {
+  const _PlanningSummary({
+    required this.tone,
+    required this.title,
+    required this.body,
+  });
+
+  final _NoticeTone tone;
+  final String title;
+  final String body;
+}
 
 class _SyncSetupSheet extends StatelessWidget {
   const _SyncSetupSheet();
@@ -595,4 +924,16 @@ class _CommandCard extends StatelessWidget {
       ),
     );
   }
+}
+
+extension on SyncEntityType {
+  IconData get icon => switch (this) {
+    SyncEntityType.recipe => Icons.menu_book_outlined,
+    SyncEntityType.pantryItem => Icons.kitchen_outlined,
+    SyncEntityType.groceryItem => Icons.shopping_basket_outlined,
+    SyncEntityType.savedMeal => Icons.restaurant_menu_outlined,
+    SyncEntityType.dayPlan => Icons.event_note_outlined,
+    SyncEntityType.mealPlan => Icons.view_week_outlined,
+    SyncEntityType.foodLogEntry => Icons.insights_outlined,
+  };
 }

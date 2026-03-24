@@ -171,6 +171,38 @@ class DayPlanEntriesTable extends Table {
   IntColumn get sugar => integer()();
 }
 
+class MealPlansTable extends Table {
+  TextColumn get id => text()();
+  TextColumn get title => text()();
+  TextColumn get note => text()();
+  TextColumn get folderLabel => text().nullable()();
+  BoolColumn get isPinned => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get createdAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+class MealPlanEntriesTable extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get planId => text().references(MealPlansTable, #id)();
+  IntColumn get position => integer()();
+  TextColumn get daySlot => text()();
+  TextColumn get mealSlot => text()();
+  TextColumn get sourceType => text()();
+  TextColumn get sourceId => text()();
+  TextColumn get title => text()();
+  TextColumn get quantity => text()();
+  TextColumn get unit => text()();
+  IntColumn get calories => integer()();
+  IntColumn get protein => integer()();
+  IntColumn get carbs => integer()();
+  IntColumn get fat => integer()();
+  IntColumn get fiber => integer()();
+  IntColumn get sodium => integer()();
+  IntColumn get sugar => integer()();
+}
+
 class FoodLogEntriesTable extends Table {
   TextColumn get id => text()();
   TextColumn get entryDate => text()();
@@ -234,6 +266,8 @@ class DailyGoalsTable extends Table {
     SavedMealComponents,
     DayPlansTable,
     DayPlanEntriesTable,
+    MealPlansTable,
+    MealPlanEntriesTable,
     FoodLogEntriesTable,
     AppSettingsTable,
     SyncQueueTable,
@@ -246,7 +280,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 13;
+  int get schemaVersion => 15;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -326,6 +360,15 @@ class AppDatabase extends _$AppDatabase {
         await m.createTable(dayPlansTable);
         await m.createTable(dayPlanEntriesTable);
       }
+      if (from < 14) {
+        await m.createTable(mealPlansTable);
+        await m.createTable(mealPlanEntriesTable);
+      }
+      if (from < 15) {
+        if (!await _tableHasColumn('meal_plans_table', 'folder_label')) {
+          await m.addColumn(mealPlansTable, mealPlansTable.folderLabel);
+        }
+      }
     },
   );
 
@@ -337,6 +380,7 @@ class AppDatabase extends _$AppDatabase {
     ).get()).isEmpty;
     final shouldSeedSavedMeals = (await select(savedMealsTable).get()).isEmpty;
     final shouldSeedDayPlans = (await select(dayPlansTable).get()).isEmpty;
+    final shouldSeedMealPlans = (await select(mealPlansTable).get()).isEmpty;
     final shouldSeedGoals = (await select(dailyGoalsTable).get()).isEmpty;
     final shouldSeedFoodLog = (await select(foodLogEntriesTable).get()).isEmpty;
 
@@ -345,6 +389,7 @@ class AppDatabase extends _$AppDatabase {
         !shouldSeedGrocery &&
         !shouldSeedSavedMeals &&
         !shouldSeedDayPlans &&
+        !shouldSeedMealPlans &&
         !shouldSeedGoals &&
         !shouldSeedFoodLog) {
       return;
@@ -371,6 +416,10 @@ class AppDatabase extends _$AppDatabase {
 
       if (shouldSeedDayPlans) {
         await _seedDayPlans(now);
+      }
+
+      if (shouldSeedMealPlans) {
+        await _seedMealPlans(now);
       }
 
       if (shouldSeedGoals) {
@@ -604,6 +653,48 @@ class AppDatabase extends _$AppDatabase {
           DayPlanEntriesTableCompanion.insert(
             planId: planId,
             position: entryIndex,
+            mealSlot: entry.mealSlot.name,
+            sourceType: entry.sourceType.name,
+            sourceId: entry.sourceId,
+            title: entry.title,
+            quantity: entry.quantity,
+            unit: entry.unit,
+            calories: entry.nutrition.calories,
+            protein: entry.nutrition.protein,
+            carbs: entry.nutrition.carbs,
+            fat: entry.nutrition.fat,
+            fiber: entry.nutrition.fiber,
+            sodium: entry.nutrition.sodium,
+            sugar: entry.nutrition.sugar,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _seedMealPlans(DateTime now) async {
+    for (var index = 0; index < SeedData.mealPlans.length; index++) {
+      final plan = SeedData.mealPlans[index];
+      final planId = 'meal_plan_seed_$index';
+
+      await into(mealPlansTable).insert(
+        MealPlansTableCompanion.insert(
+          id: planId,
+          title: plan.name,
+          note: plan.note,
+          folderLabel: Value(plan.folderLabel),
+          isPinned: Value(plan.isPinned),
+          createdAt: now,
+        ),
+      );
+
+      for (var entryIndex = 0; entryIndex < plan.entries.length; entryIndex++) {
+        final entry = plan.entries[entryIndex];
+        await into(mealPlanEntriesTable).insert(
+          MealPlanEntriesTableCompanion.insert(
+            planId: planId,
+            position: entryIndex,
+            daySlot: entry.daySlot.name,
             mealSlot: entry.mealSlot.name,
             sourceType: entry.sourceType.name,
             sourceId: entry.sourceId,

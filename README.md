@@ -15,10 +15,13 @@ This repository now includes:
 - Pantry brand and barcode capture.
 - Camera barcode scanning plus Open Food Facts import with USDA fallback nutrition lookup.
 - Persisted pantry product artwork from imported items.
-- Food-log goals, saved meals, smart suggestions, and reusable day plans.
-- Grocery export from pinned recipes, saved meals, and reusable day plans.
+- Manual pantry photo import from gallery or camera with local-device persistence.
+- Food-log goals, saved meals, smart suggestions, reusable day plans, and weekly meal plans.
+- Meal-plan folders/boards with bulk pin-to-grocery actions and calendar-style weekly board previews.
+- Grocery export from pinned recipes, saved meals, reusable day plans, and pinned meal plans.
 - Universal Quick Add for grocery, pantry, and food-log entry.
-- A local-first sync queue with optional Firebase Auth + Firestore push/pull merge wiring when cloud config is present.
+- Real app launches now start from user-owned data instead of auto-loaded demo content, with guided empty states across the main tabs.
+- A local-first sync queue with optional Firebase Auth + Firestore push/pull merge wiring when cloud config is present, now including meal plans and richer Sync Center diagnostics.
 - An adaptive mobile shell with the four primary tabs:
   - Recipes
   - Grocery List
@@ -30,14 +33,17 @@ This repository now includes:
 
 - Local-first recipe, pantry, grocery, and food-log flows are implemented and verified.
 - Pantry items now support camera barcode scanning, pasted barcode lookup, nutrition import through Open Food Facts, and USDA fallback lookups.
+- Pantry items now also support local photo import from the gallery or camera while keeping device-specific image paths out of cloud sync.
 - Recipe import now covers plain text, fetched URLs, and screenshot OCR.
-- Food Log now includes macro-aware suggestions plus direct create/edit day-plan flows.
-- Grocery export now includes reusable day plans alongside pinned recipes and saved meals.
+- Food Log now includes macro-aware suggestions plus direct create/edit day-plan and meal-plan flows.
+- Fresh installs now start empty in the real app, with editable daily goals and create-first empty states so testing can happen against user-entered data instead of seeded demo content.
+- Meal plans can now be grouped into named folders so related boards stay together, can be pinned to grocery export in bulk, and render as weekly planning boards in both cards and the editor.
+- Grocery export now includes reusable day plans and pinned meal plans alongside pinned recipes and saved meals.
 - Universal Quick Add is live from the main shell for grocery, pantry, and food-log entry.
-- Nested recipe, saved-meal, and day-plan nutrition flows are wired through the local database.
-- Optional Firebase sync now has a real queue, Sync Center UI, Android/iOS app registration, and pull-first merge coverage for recipes, pantry, grocery, saved meals, day plans, and food log.
+- Nested recipe, saved-meal, day-plan, and meal-plan nutrition flows are wired through the local database.
+- Optional Firebase sync now has a real queue, richer Sync Center diagnostics, Android/iOS app registration, and pull-first merge coverage for recipes, pantry, grocery, saved meals, day plans, meal plans, and food log.
 - The remaining Firebase work is mainly console-side enablement and real-device validation.
-- Overall alignment to the target product vision is currently estimated at about 75-85%.
+- Overall alignment to the target product vision is currently estimated at about 80-88%.
 
 ## Product Direction
 
@@ -109,7 +115,7 @@ The current draft has passed:
 - `flutter analyze`
 - `flutter test`
 - `flutter build apk --debug`
-- Android emulator smoke test across Recipes, Grocery, Pantry, Food Log, Quick Add, pantry barcode import, grocery day-plan export, and post-plugin startup checks
+- Android emulator smoke test across Recipes, Grocery, Pantry, Food Log, Quick Add, pantry barcode import, grocery day-plan export, meal-plan UI, and post-plugin startup checks
 
 The emulator also verified the manual barcode import path end to end. Live camera scanning still needs one real Android device check because the emulator camera backend opens the scanner sheet and permission flow but does not provide a reliable barcode preview.
 
@@ -125,6 +131,6 @@ The emulator also verified the manual barcode import path end to end. Live camer
 
 1. Finish real Firebase enablement in the console and validate end-to-end Android sign-in plus Firestore push.
 2. Validate full pull/merge behavior against real Firebase data on a configured Android device.
-3. Build the next planning layer above day plans: weekly organization, scheduling, and richer plan grouping.
-4. Improve sync diagnostics, conflict visibility, and retry ergonomics.
-5. Add pantry item photo import and richer imported-product image handling on top of the barcode flow.
+3. Validate the richer sync diagnostics against real Firebase data on a configured device.
+4. Package and smoke-test a demo-ready Android APK on real devices.
+5. Expand pantry media handling beyond the first local photo workflow, then keep polishing recipe import.

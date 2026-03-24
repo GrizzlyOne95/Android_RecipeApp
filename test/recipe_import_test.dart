@@ -38,6 +38,13 @@ Nutrition: Calories 320 Protein 12g Carbs 44g Fat 9g Fiber 8g Sugar 11g
       expect(result.draft.nutrition.calories, 320);
       expect(result.draft.nutrition.protein, 12);
       expect(result.draft.tags, contains('Imported'));
+      expect(result.confidence, RecipeImportConfidence.high);
+      expect(
+        result.checks
+            .firstWhere((check) => check.label == 'Ingredients')
+            .isReady,
+        isTrue,
+      );
     },
   );
 
@@ -56,6 +63,13 @@ Nutrition: Calories 320 Protein 12g Carbs 44g Fat 9g Fiber 8g Sugar 11g
     expect(
       result.warnings,
       contains('No ingredients were detected. Add them in the editor.'),
+    );
+    expect(result.confidence, RecipeImportConfidence.low);
+    expect(
+      result.reviewNotes,
+      contains(
+        'Title came from the URL slug. Confirm the recipe name in the editor.',
+      ),
     );
   });
 
@@ -91,6 +105,13 @@ Step 1: Heat the pan. Step 2: Scramble the eggs. Step 3: Toss in rice and season
       expect(result.draft.note, contains('Prep Time: 10 minutes'));
       expect(result.draft.note, contains('Cook Time: 12 minutes'));
       expect(result.draft.tags, contains('OCR import'));
+      expect(result.confidence, RecipeImportConfidence.medium);
+      expect(
+        result.reviewNotes,
+        contains(
+          'OCR imports often need quantity, punctuation, and step cleanup.',
+        ),
+      );
     },
   );
 
@@ -112,6 +133,80 @@ Directions
     expect(
       result.draft.tags,
       containsAll(['Meal Prep', 'Dinner', 'High Protein']),
+    );
+    expect(result.confidenceScore, greaterThan(0));
+  });
+
+  test('recipe import parser cleans noisy web text into a stronger draft', () {
+    final result = RecipeImportParser.parse(
+      mode: RecipeImportMode.urlPaste,
+      sourceUrl: 'https://www.budgetbytes.com/one-pot-chili',
+      rawText: '''
+Jump to Recipe
+Print Recipe
+One Pot Chili - Budget Bytes
+5 from 4 votes
+Prep Time: 10 minutes
+Cook Time: 30 minutes
+Course: Dinner
+Cuisine: American
+Servings: 6
+
+Ingredients
+1 lb ground beef
+1 onion, diced
+Salt and pepper to taste
+
+Instructions
+Brown beef in a pot. Add onion and cook until softened. Stir in seasoning and simmer.
+''',
+    );
+
+    expect(result.draft.name, 'One Pot Chili');
+    expect(result.draft.servings, 6);
+    expect(result.draft.ingredients, hasLength(3));
+    expect(result.draft.ingredients[1].preparation, 'diced');
+    expect(
+      result.draft.directions,
+      containsAll([
+        'Brown beef in a pot.',
+        'Add onion and cook until softened.',
+        'Stir in seasoning and simmer.',
+      ]),
+    );
+    expect(result.draft.tags, containsAll(['Dinner', 'American']));
+    expect(result.draft.note, contains('Prep Time: 10 minutes'));
+    expect(result.confidence, RecipeImportConfidence.high);
+  });
+
+  test('recipe import parser skips ingredient subsection headings', () {
+    final result = RecipeImportParser.parse(
+      mode: RecipeImportMode.textPaste,
+      rawText: '''
+Big Salad
+Servings: 4
+
+Ingredients
+For the dressing:
+2 tbsp olive oil
+1 tbsp lemon juice
+For the salad:
+4 cups arugula
+1 avocado, sliced
+
+Directions
+Whisk the dressing. Toss with the salad and serve.
+''',
+    );
+
+    expect(result.draft.ingredients, hasLength(4));
+    expect(
+      result.draft.ingredients.map((ingredient) => ingredient.item),
+      isNot(contains('For the dressing:')),
+    );
+    expect(
+      result.draft.directions,
+      containsAll(['Whisk the dressing.', 'Toss with the salad and serve.']),
     );
   });
 }

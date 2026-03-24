@@ -32,7 +32,7 @@ class _GroceryPageState extends State<GroceryPage> {
     return ShellScaffold(
       title: 'Grocery List',
       subtitle:
-          'Export ingredients from pinned recipes, saved meals, or reusable day plans, then mix in standalone ingredients like sour cream, fruit, or snacks.',
+          'Export ingredients from pinned recipes, saved meals, reusable day plans, or pinned meal plans, then mix in standalone ingredients like sour cream, fruit, or snacks.',
       trailing: Wrap(
         spacing: 10,
         runSpacing: 10,
@@ -78,6 +78,15 @@ class _GroceryPageState extends State<GroceryPage> {
                       );
                     },
                   ),
+                  FilterChip(
+                    selected: settings.includeMealPlans,
+                    label: const Text('Meal plans'),
+                    onSelected: (value) {
+                      repository.setExportSettings(
+                        settings.copyWith(includeMealPlans: value),
+                      );
+                    },
+                  ),
                 ],
               );
             },
@@ -96,6 +105,21 @@ class _GroceryPageState extends State<GroceryPage> {
             stream: repository.watchGrocerySections(),
             builder: (context, snapshot) {
               final sections = snapshot.data ?? const <GrocerySection>[];
+
+              if (sections.isEmpty) {
+                return EmptyStateCard(
+                  title: 'No grocery items yet',
+                  body:
+                      'Add one-off shopping items here, or pin recipes, saved meals, day plans, and meal plans to generate a list from your own data.',
+                  actions: [
+                    FilledButton.icon(
+                      onPressed: () => _openQuickAdd(context, repository),
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add single item'),
+                    ),
+                  ],
+                );
+              }
 
               return Column(
                 children: sections

@@ -63,6 +63,45 @@ Future<DayPlanDraft?> showDayPlanEditorSheet(
   );
 }
 
+Future<MealPlanDraft?> showMealPlanEditorSheet(
+  BuildContext context,
+  FoodLogRepository repository, {
+  MealPlanDraft? initialDraft,
+}) {
+  final draft =
+      initialDraft ??
+      const MealPlanDraft(
+        name: '',
+        note: '',
+        folderLabel: null,
+        isPinned: false,
+        entries: <MealPlanEntryDraft>[],
+      );
+  return showModalBottomSheet<MealPlanDraft>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (context) =>
+        _MealPlanEditorSheet(repository: repository, initialDraft: draft),
+  );
+}
+
+Future<List<DailyGoal>?> showDailyGoalsEditorSheet(
+  BuildContext context,
+  FoodLogRepository repository, {
+  required List<DailyGoal> initialGoals,
+}) {
+  return showModalBottomSheet<List<DailyGoal>>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (context) => _DailyGoalsEditorSheet(
+      repository: repository,
+      initialGoals: initialGoals,
+    ),
+  );
+}
+
 class FoodLogPage extends StatefulWidget {
   const FoodLogPage({super.key});
 
@@ -73,13 +112,13 @@ class FoodLogPage extends StatefulWidget {
 class _FoodLogPageState extends State<FoodLogPage> {
   @override
   Widget build(BuildContext context) {
-    final date = DateFormat('EEEE, MMMM d').format(SeedData.todayDate);
     final repositories = RecipeAppScope.of(context).repositories;
+    final date = DateFormat('EEEE, MMMM d').format(repositories.today);
 
     return ShellScaffold(
       title: 'Food Log',
       subtitle:
-          'Track meals by day, reuse saved meals with adjustable ingredient quantities, save reusable day plans, and compare what you ate against calorie and macro goals.',
+          'Track meals by day, reuse saved meals with adjustable ingredient quantities, save reusable day plans, organize weekly meal-plan boards, and compare what you ate against calorie and macro goals.',
       trailing: Wrap(
         spacing: 10,
         runSpacing: 10,
@@ -99,6 +138,11 @@ class _FoodLogPageState extends State<FoodLogPage> {
             onPressed: () => _openDayPlanEditor(context, repositories.foodLog),
             icon: const Icon(Icons.event_note_outlined),
             label: const Text('Day plan'),
+          ),
+          FilledButton.tonalIcon(
+            onPressed: () => _openMealPlanEditor(context, repositories.foodLog),
+            icon: const Icon(Icons.view_week_outlined),
+            label: const Text('Meal plan'),
           ),
           FilledButton.icon(
             onPressed: () => _openMealEditor(
@@ -128,6 +172,7 @@ class _FoodLogPageState extends State<FoodLogPage> {
                     goals: <DailyGoal>[],
                     savedMeals: <SavedMeal>[],
                     dayPlans: <DayPlan>[],
+                    mealPlans: <MealPlan>[],
                     entries: <FoodLogEntry>[],
                   );
 
@@ -142,7 +187,14 @@ class _FoodLogPageState extends State<FoodLogPage> {
                             Expanded(
                               child: Column(
                                 children: [
-                                  _GoalPanel(goals: data.goals),
+                                  _GoalPanel(
+                                    goals: data.goals,
+                                    onEdit: () => _openGoalsEditor(
+                                      context,
+                                      repositories.foodLog,
+                                      data.goals,
+                                    ),
+                                  ),
                                   const SizedBox(height: 16),
                                   _SuggestionsPanel(
                                     suggestionsStream: repositories.foodLog
@@ -172,6 +224,34 @@ class _FoodLogPageState extends State<FoodLogPage> {
                                       repositories.foodLog,
                                       plan,
                                     ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  _MealPlansPanel(
+                                    mealPlans: data.mealPlans,
+                                    onEdit: (plan) => _openMealPlanEditor(
+                                      context,
+                                      repositories.foodLog,
+                                      plan: plan,
+                                    ),
+                                    onDelete: (plan) => _deleteMealPlan(
+                                      context,
+                                      repositories.foodLog,
+                                      plan,
+                                    ),
+                                    onTogglePinned: (plan) =>
+                                        _toggleMealPlanPinned(
+                                          context,
+                                          repositories.foodLog,
+                                          plan,
+                                        ),
+                                    onToggleFolderPinned:
+                                        (folderLabel, shouldPin) =>
+                                            _toggleMealPlanFolderPinned(
+                                              context,
+                                              repositories.foodLog,
+                                              folderLabel: folderLabel,
+                                              shouldPin: shouldPin,
+                                            ),
                                   ),
                                 ],
                               ),
@@ -210,7 +290,14 @@ class _FoodLogPageState extends State<FoodLogPage> {
                         )
                       : Column(
                           children: [
-                            _GoalPanel(goals: data.goals),
+                            _GoalPanel(
+                              goals: data.goals,
+                              onEdit: () => _openGoalsEditor(
+                                context,
+                                repositories.foodLog,
+                                data.goals,
+                              ),
+                            ),
                             const SizedBox(height: 16),
                             _SuggestionsPanel(
                               suggestionsStream: repositories.foodLog
@@ -240,6 +327,32 @@ class _FoodLogPageState extends State<FoodLogPage> {
                                 repositories.foodLog,
                                 plan,
                               ),
+                            ),
+                            const SizedBox(height: 16),
+                            _MealPlansPanel(
+                              mealPlans: data.mealPlans,
+                              onEdit: (plan) => _openMealPlanEditor(
+                                context,
+                                repositories.foodLog,
+                                plan: plan,
+                              ),
+                              onDelete: (plan) => _deleteMealPlan(
+                                context,
+                                repositories.foodLog,
+                                plan,
+                              ),
+                              onTogglePinned: (plan) => _toggleMealPlanPinned(
+                                context,
+                                repositories.foodLog,
+                                plan,
+                              ),
+                              onToggleFolderPinned: (folderLabel, shouldPin) =>
+                                  _toggleMealPlanFolderPinned(
+                                    context,
+                                    repositories.foodLog,
+                                    folderLabel: folderLabel,
+                                    shouldPin: shouldPin,
+                                  ),
                             ),
                             const SizedBox(height: 16),
                             _DailyEntriesPanel(
@@ -345,7 +458,7 @@ class _FoodLogPageState extends State<FoodLogPage> {
       context,
       repository,
       seedEntries: snapshot.entries,
-      suggestedName: 'Plan ${DateFormat('MMM d').format(SeedData.todayDate)}',
+      suggestedName: 'Plan ${DateFormat('MMM d').format(repository.today)}',
     );
     if (draft == null || !context.mounted) {
       return;
@@ -397,6 +510,33 @@ class _FoodLogPageState extends State<FoodLogPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _openGoalsEditor(
+    BuildContext context,
+    FoodLogRepository repository,
+    List<DailyGoal> goals,
+  ) async {
+    final initialGoals = goals.isEmpty
+        ? FoodLogRepository.defaultDailyGoals
+        : goals;
+    final result = await showDailyGoalsEditorSheet(
+      context,
+      repository,
+      initialGoals: initialGoals,
+    );
+    if (result == null || !context.mounted) {
+      return;
+    }
+
+    await repository.saveDailyGoalTargets(result);
+    if (!context.mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Daily goals updated.')));
   }
 
   Future<void> _applyDayPlan(
@@ -475,6 +615,133 @@ class _FoodLogPageState extends State<FoodLogPage> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('Day plan deleted.')));
+  }
+
+  Future<void> _openMealPlanEditor(
+    BuildContext context,
+    FoodLogRepository repository, {
+    MealPlan? plan,
+  }) async {
+    final draft = plan == null
+        ? null
+        : await repository.getMealPlanDraft(plan.id);
+    if (!context.mounted) {
+      return;
+    }
+
+    final result = await showMealPlanEditorSheet(
+      context,
+      repository,
+      initialDraft: draft,
+    );
+    if (result == null || !context.mounted) {
+      return;
+    }
+
+    await repository.saveMealPlan(result, existingId: plan?.id);
+    if (!context.mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          plan == null
+              ? 'Saved "${result.name}" as a meal plan.'
+              : 'Updated "${result.name}".',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _toggleMealPlanPinned(
+    BuildContext context,
+    FoodLogRepository repository,
+    MealPlan plan,
+  ) async {
+    await repository.saveMealPlan(
+      plan.toDraft().copyWith(isPinned: !plan.isPinned),
+      existingId: plan.id,
+    );
+    if (!context.mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          plan.isPinned
+              ? 'Unpinned "${plan.name}" from grocery export.'
+              : 'Pinned "${plan.name}" for grocery export.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _toggleMealPlanFolderPinned(
+    BuildContext context,
+    FoodLogRepository repository, {
+    required String? folderLabel,
+    required bool shouldPin,
+  }) async {
+    final updatedCount = await repository.setMealPlanFolderPinnedState(
+      folderLabel,
+      shouldPin,
+    );
+    if (!context.mounted || updatedCount == 0) {
+      return;
+    }
+
+    final folderName = (folderLabel?.trim().isEmpty ?? true)
+        ? 'Loose Plans'
+        : folderLabel!.trim();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          shouldPin
+              ? 'Pinned $updatedCount meal plan${updatedCount == 1 ? '' : 's'} from "$folderName" for grocery export.'
+              : 'Unpinned $updatedCount meal plan${updatedCount == 1 ? '' : 's'} from "$folderName".',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteMealPlan(
+    BuildContext context,
+    FoodLogRepository repository,
+    MealPlan plan,
+  ) async {
+    final shouldDelete =
+        await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Delete meal plan?'),
+            content: Text('Remove "${plan.name}" from your meal-plan boards?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!shouldDelete || !context.mounted) {
+      return;
+    }
+
+    await repository.deleteMealPlan(plan.id);
+    if (!context.mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Meal plan deleted.')));
   }
 
   Future<void> _openMealEditor(
@@ -615,10 +882,168 @@ String _formatEntryQuantity(String quantity, String unit) {
   ].join(' ');
 }
 
+String _mealPlanBoardEntryLabel(
+  MealPlanEntryDraft entry, {
+  required bool includeQuantity,
+}) {
+  final quantityLabel = includeQuantity
+      ? _formatEntryQuantity(entry.quantity, entry.unit)
+      : '';
+  return [
+    if (quantityLabel.isNotEmpty) quantityLabel,
+    entry.title.trim(),
+  ].join(' ').trim();
+}
+
+class _DailyGoalsEditorSheet extends StatefulWidget {
+  const _DailyGoalsEditorSheet({
+    required this.repository,
+    required this.initialGoals,
+  });
+
+  final FoodLogRepository repository;
+  final List<DailyGoal> initialGoals;
+
+  @override
+  State<_DailyGoalsEditorSheet> createState() => _DailyGoalsEditorSheetState();
+}
+
+class _DailyGoalsEditorSheetState extends State<_DailyGoalsEditorSheet> {
+  late final List<_DailyGoalTargetController> _goalControllers;
+
+  @override
+  void initState() {
+    super.initState();
+    final goalsByLabel = {
+      for (final goal in widget.initialGoals) goal.label: goal,
+    };
+    _goalControllers = FoodLogRepository.defaultDailyGoals
+        .map(
+          (goal) => _DailyGoalTargetController(
+            label: goal.label,
+            controller: TextEditingController(
+              text: (goalsByLabel[goal.label]?.target ?? goal.target)
+                  .toString(),
+            ),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  @override
+  void dispose() {
+    for (final goal in _goalControllers) {
+      goal.controller.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final viewInsets = MediaQuery.viewInsetsOf(context);
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + viewInsets.bottom),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Daily goals',
+                        style: theme.textTheme.headlineMedium,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Set the targets you want this build to track against. These values drive Food Log progress and suggestion scoring.',
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            ..._goalControllers.map(
+              (goal) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: TextFormField(
+                  controller: goal.controller,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: goal.label,
+                    hintText: 'Target value',
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: _submit,
+                    child: const Text('Save goals'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _submit() {
+    final goals = <DailyGoal>[];
+    for (final goal in _goalControllers) {
+      final target = int.tryParse(goal.controller.text.trim());
+      if (target == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Enter a whole-number target for ${goal.label}.'),
+          ),
+        );
+        return;
+      }
+      goals.add(DailyGoal(label: goal.label, consumed: 0, target: target));
+    }
+    Navigator.of(context).pop(goals);
+  }
+}
+
+class _DailyGoalTargetController {
+  const _DailyGoalTargetController({
+    required this.label,
+    required this.controller,
+  });
+
+  final String label;
+  final TextEditingController controller;
+}
+
 class _GoalPanel extends StatelessWidget {
-  const _GoalPanel({required this.goals});
+  const _GoalPanel({required this.goals, required this.onEdit});
 
   final List<DailyGoal> goals;
+  final VoidCallback onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -630,48 +1055,69 @@ class _GoalPanel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Goal Progress', style: theme.textTheme.titleLarge),
-            const SizedBox(height: 18),
-            ...goals.map((goal) {
-              final ratio = goal.target == 0
-                  ? 0.0
-                  : goal.consumed / goal.target;
-
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            goal.label,
-                            style: theme.textTheme.labelLarge,
-                          ),
-                        ),
-                        Text(
-                          '${goal.consumed}/${goal.target}',
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: LinearProgressIndicator(
-                        minHeight: 12,
-                        value: ratio.clamp(0, 1.2),
-                        backgroundColor: const Color(0xFFE7D9BF),
-                        color: ratio > 1
-                            ? const Color(0xFFB34F3F)
-                            : const Color(0xFF4F6B44),
-                      ),
-                    ),
-                  ],
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Goal Progress',
+                    style: theme.textTheme.titleLarge,
+                  ),
                 ),
-              );
-            }),
+                FilledButton.tonalIcon(
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.tune_outlined),
+                  label: Text(goals.isEmpty ? 'Set goals' : 'Edit goals'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            if (goals.isEmpty)
+              const EmptyStateCard(
+                title: 'No daily goals yet',
+                body:
+                    'Set your own calorie and macro targets so Food Log suggestions and progress bars reflect the numbers you actually care about.',
+              )
+            else
+              ...goals.map((goal) {
+                final ratio = goal.target == 0
+                    ? 0.0
+                    : goal.consumed / goal.target;
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              goal.label,
+                              style: theme.textTheme.labelLarge,
+                            ),
+                          ),
+                          Text(
+                            '${goal.consumed}/${goal.target}',
+                            style: theme.textTheme.bodyMedium,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: LinearProgressIndicator(
+                          minHeight: 12,
+                          value: ratio.clamp(0, 1.2),
+                          backgroundColor: const Color(0xFFE7D9BF),
+                          color: ratio > 1
+                              ? const Color(0xFFB34F3F)
+                              : const Color(0xFF4F6B44),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
           ],
         ),
       ),
@@ -985,6 +1431,456 @@ class _DayPlanCard extends StatelessWidget {
 }
 
 enum _DayPlanAction { edit, delete }
+
+class _MealPlansPanel extends StatelessWidget {
+  const _MealPlansPanel({
+    required this.mealPlans,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onTogglePinned,
+    required this.onToggleFolderPinned,
+  });
+
+  final List<MealPlan> mealPlans;
+  final ValueChanged<MealPlan> onEdit;
+  final ValueChanged<MealPlan> onDelete;
+  final ValueChanged<MealPlan> onTogglePinned;
+  final void Function(String? folderLabel, bool shouldPin) onToggleFolderPinned;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final folderGroups = <_MealPlanFolderGroup>[];
+    final groupedPlans = <String, List<MealPlan>>{};
+    final folderLookup = <String, String?>{};
+
+    for (final plan in mealPlans) {
+      final folderKey = plan.folderDisplayLabel;
+      groupedPlans.putIfAbsent(folderKey, () => <MealPlan>[]).add(plan);
+      folderLookup.putIfAbsent(folderKey, () => plan.folderLabel);
+    }
+    for (final entry in groupedPlans.entries) {
+      folderGroups.add(
+        _MealPlanFolderGroup(
+          folderDisplayLabel: entry.key,
+          folderLabel: folderLookup[entry.key],
+          plans: entry.value,
+        ),
+      );
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Meal Plans', style: theme.textTheme.titleLarge),
+            const SizedBox(height: 8),
+            Text(
+              'Organize a weekly board of meals and pantry add-ons, then pin the plans you want exported to Grocery.',
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 18),
+            if (mealPlans.isEmpty)
+              Text(
+                'Create a meal plan to start grouping meals across multiple days.',
+                style: theme.textTheme.bodyMedium,
+              )
+            else
+              ...folderGroups.map(
+                (group) => Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: _MealPlanFolderCard(
+                    group: group,
+                    onToggleFolderPinned: (shouldPin) =>
+                        onToggleFolderPinned(group.folderLabel, shouldPin),
+                    child: Column(
+                      children: group.plans
+                          .map(
+                            (plan) => Padding(
+                              padding: const EdgeInsets.only(top: 12),
+                              child: _MealPlanCard(
+                                plan: plan,
+                                onEdit: () => onEdit(plan),
+                                onDelete: () => onDelete(plan),
+                                onTogglePinned: () => onTogglePinned(plan),
+                              ),
+                            ),
+                          )
+                          .toList(growable: false),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MealPlanFolderGroup {
+  const _MealPlanFolderGroup({
+    required this.folderDisplayLabel,
+    required this.folderLabel,
+    required this.plans,
+  });
+
+  final String folderDisplayLabel;
+  final String? folderLabel;
+  final List<MealPlan> plans;
+
+  int get pinnedCount => plans.where((plan) => plan.isPinned).length;
+
+  bool get allPinned => plans.isNotEmpty && pinnedCount == plans.length;
+
+  int get totalEntries =>
+      plans.fold(0, (total, plan) => total + plan.entries.length);
+
+  NutritionSnapshot get nutrition => plans.fold(
+    NutritionSnapshot.zero,
+    (total, plan) => total + plan.nutrition,
+  );
+}
+
+class _MealPlanFolderCard extends StatelessWidget {
+  const _MealPlanFolderCard({
+    required this.group,
+    required this.onToggleFolderPinned,
+    required this.child,
+  });
+
+  final _MealPlanFolderGroup group;
+  final ValueChanged<bool> onToggleFolderPinned;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE8DDC9),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      group.folderDisplayLabel,
+                      style: theme.textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${group.plans.length} plan${group.plans.length == 1 ? '' : 's'} • ${group.totalEntries} scheduled entries',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ],
+                ),
+              ),
+              FilledButton.tonalIcon(
+                onPressed: () => onToggleFolderPinned(!group.allPinned),
+                icon: Icon(
+                  group.allPinned ? Icons.push_pin_outlined : Icons.push_pin,
+                ),
+                label: Text(group.allPinned ? 'Unpin folder' : 'Pin folder'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              Chip(
+                avatar: const Icon(Icons.folder_open_outlined, size: 18),
+                label: Text(
+                  '${group.pinnedCount}/${group.plans.length} pinned to Grocery',
+                ),
+              ),
+              _MiniStat(
+                label: 'Calories',
+                value: '${group.nutrition.calories}',
+              ),
+              _MiniStat(label: 'Protein', value: '${group.nutrition.protein}g'),
+            ],
+          ),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _MealPlanCard extends StatelessWidget {
+  const _MealPlanCard({
+    required this.plan,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onTogglePinned,
+  });
+
+  final MealPlan plan;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final VoidCallback onTogglePinned;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final nutrition = plan.nutrition;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0E6D7),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(plan.name, style: theme.textTheme.titleMedium),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${plan.entries.length} entries across ${plan.scheduledDayCount} days',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuButton<_MealPlanAction>(
+                onSelected: (action) {
+                  switch (action) {
+                    case _MealPlanAction.edit:
+                      onEdit();
+                    case _MealPlanAction.togglePinned:
+                      onTogglePinned();
+                    case _MealPlanAction.delete:
+                      onDelete();
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: _MealPlanAction.edit,
+                    child: Text('Edit'),
+                  ),
+                  PopupMenuItem(
+                    value: _MealPlanAction.togglePinned,
+                    child: Text(
+                      plan.isPinned ? 'Unpin from grocery' : 'Pin to grocery',
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: _MealPlanAction.delete,
+                    child: Text('Delete'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if ((plan.folderLabel ?? '').trim().isNotEmpty)
+                Chip(
+                  avatar: const Icon(Icons.folder_outlined, size: 18),
+                  label: Text(plan.folderDisplayLabel),
+                ),
+              if (plan.isPinned)
+                const Chip(
+                  avatar: Icon(Icons.push_pin_outlined, size: 18),
+                  label: Text('Pinned to Grocery'),
+                ),
+              _MiniStat(label: 'Calories', value: '${nutrition.calories}'),
+              _MiniStat(label: 'Protein', value: '${nutrition.protein}g'),
+            ],
+          ),
+          if (plan.note.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(plan.note.trim(), style: theme.textTheme.bodyMedium),
+          ],
+          const SizedBox(height: 12),
+          Text('Weekly board preview', style: theme.textTheme.titleSmall),
+          const SizedBox(height: 10),
+          _MealPlanBoardPreview(entries: plan.entries, isCompact: true),
+        ],
+      ),
+    );
+  }
+}
+
+enum _MealPlanAction { edit, togglePinned, delete }
+
+class _MealPlanBoardPreview extends StatelessWidget {
+  const _MealPlanBoardPreview({required this.entries, this.isCompact = false});
+
+  final List<MealPlanEntryDraft> entries;
+  final bool isCompact;
+
+  @override
+  Widget build(BuildContext context) {
+    final entriesByDay =
+        <MealPlanDaySlot, Map<FoodLogMealSlot, List<MealPlanEntryDraft>>>{};
+    for (final day in MealPlanDaySlot.values) {
+      entriesByDay[day] = {
+        for (final slot in FoodLogMealSlot.values) slot: <MealPlanEntryDraft>[],
+      };
+    }
+    for (final entry in entries) {
+      entriesByDay[entry.daySlot]![entry.mealSlot]!.add(entry);
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(10),
+        color: Colors.white,
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: MealPlanDaySlot.values
+                .map(
+                  (day) => Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: _MealPlanDayBoardColumn(
+                      day: day,
+                      entriesBySlot: entriesByDay[day]!,
+                      isCompact: isCompact,
+                    ),
+                  ),
+                )
+                .toList(growable: false),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MealPlanDayBoardColumn extends StatelessWidget {
+  const _MealPlanDayBoardColumn({
+    required this.day,
+    required this.entriesBySlot,
+    required this.isCompact,
+  });
+
+  final MealPlanDaySlot day;
+  final Map<FoodLogMealSlot, List<MealPlanEntryDraft>> entriesBySlot;
+  final bool isCompact;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SizedBox(
+      width: isCompact ? 148 : 176,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 8),
+            child: Text(day.label, style: theme.textTheme.titleSmall),
+          ),
+          ...FoodLogMealSlot.values.map(
+            (slot) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _MealPlanBoardCell(
+                slot: slot,
+                entries: entriesBySlot[slot] ?? const <MealPlanEntryDraft>[],
+                isCompact: isCompact,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MealPlanBoardCell extends StatelessWidget {
+  const _MealPlanBoardCell({
+    required this.slot,
+    required this.entries,
+    required this.isCompact,
+  });
+
+  final FoodLogMealSlot slot;
+  final List<MealPlanEntryDraft> entries;
+  final bool isCompact;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final visibleEntries = entries
+        .take(isCompact ? 2 : 3)
+        .toList(growable: false);
+
+    return Container(
+      width: double.infinity,
+      constraints: BoxConstraints(minHeight: isCompact ? 72 : 88),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F1E5),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE0D1B9)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(slot.label, style: theme.textTheme.labelLarge),
+          const SizedBox(height: 6),
+          if (entries.isEmpty)
+            Text(
+              'Open',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: const Color(0xFF7B6A58),
+              ),
+            )
+          else ...[
+            ...visibleEntries.map(
+              (entry) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  _mealPlanBoardEntryLabel(entry, includeQuantity: !isCompact),
+                  maxLines: isCompact ? 2 : 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+            ),
+            if (entries.length > visibleEntries.length)
+              Text(
+                '+${entries.length - visibleEntries.length} more',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: const Color(0xFF7B6A58),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
 
 class _DailyEntriesPanel extends StatelessWidget {
   const _DailyEntriesPanel({required this.entries, required this.onDelete});
@@ -1558,7 +2454,7 @@ class _FoodLogEntryEditorSheetState extends State<_FoodLogEntryEditorSheet> {
 
     Navigator.of(context).pop(
       FoodLogEntryDraft(
-        date: SeedData.todayDate,
+        date: widget.repository.today,
         mealSlot: _selectedMealSlot,
         sourceType: target.sourceType,
         sourceId: target.id,
@@ -1636,13 +2532,15 @@ class _DayPlanEditorSheetState extends State<_DayPlanEditorSheet> {
       stream: widget.repository.watchEntryTargets(),
       builder: (context, snapshot) {
         final targets = snapshot.data ?? const <FoodLogEntryTarget>[];
+        final resolvedDrafts = _entries
+            .map((entry) => _resolvedDraftForEntry(entry, targets))
+            .whereType<MealPlanEntryDraft>()
+            .toList(growable: false);
         final previewNutrition = _entries.fold(
           NutritionSnapshot.zero,
           (total, entry) => total + _previewNutritionForEntry(entry, targets),
         );
-        final resolvedCount = _entries
-            .where((entry) => _resolvedDraftForEntry(entry, targets) != null)
-            .length;
+        final resolvedCount = resolvedDrafts.length;
 
         return Padding(
           padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + viewInsets.bottom),
@@ -2052,6 +2950,583 @@ class _DayPlanEntryControllers {
     );
   }
 
+  FoodLogMealSlot mealSlot;
+  String? targetId;
+  final TextEditingController quantityController;
+  final TextEditingController unitController;
+
+  void addListener(VoidCallback listener) {
+    quantityController.addListener(listener);
+    unitController.addListener(listener);
+  }
+
+  void dispose() {
+    quantityController.dispose();
+    unitController.dispose();
+  }
+}
+
+class _MealPlanEditorSheet extends StatefulWidget {
+  const _MealPlanEditorSheet({
+    required this.repository,
+    required this.initialDraft,
+  });
+
+  final FoodLogRepository repository;
+  final MealPlanDraft initialDraft;
+
+  @override
+  State<_MealPlanEditorSheet> createState() => _MealPlanEditorSheetState();
+}
+
+class _MealPlanEditorSheetState extends State<_MealPlanEditorSheet> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _folderController;
+  late final TextEditingController _noteController;
+  late final List<_MealPlanEntryControllers> _entries;
+  late bool _isPinned;
+
+  @override
+  void initState() {
+    super.initState();
+    final draft = widget.initialDraft;
+    _nameController = TextEditingController(text: draft.name);
+    _folderController = TextEditingController(text: draft.folderLabel ?? '');
+    _noteController = TextEditingController(text: draft.note);
+    _isPinned = draft.isPinned;
+    _entries = draft.entries
+        .map(_MealPlanEntryControllers.fromDraft)
+        .toList(growable: true);
+    if (_entries.isEmpty) {
+      _entries.add(_MealPlanEntryControllers.empty());
+    }
+    _nameController.addListener(_handleDraftChanged);
+    _folderController.addListener(_handleDraftChanged);
+    _noteController.addListener(_handleDraftChanged);
+    for (final entry in _entries) {
+      entry.addListener(_handleDraftChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.removeListener(_handleDraftChanged);
+    _folderController.removeListener(_handleDraftChanged);
+    _noteController.removeListener(_handleDraftChanged);
+    _nameController.dispose();
+    _folderController.dispose();
+    _noteController.dispose();
+    for (final entry in _entries) {
+      entry.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final viewInsets = MediaQuery.viewInsetsOf(context);
+    final theme = Theme.of(context);
+
+    return StreamBuilder<List<FoodLogEntryTarget>>(
+      stream: widget.repository.watchEntryTargets(),
+      builder: (context, snapshot) {
+        final targets = snapshot.data ?? const <FoodLogEntryTarget>[];
+        final previewNutrition = _entries.fold(
+          NutritionSnapshot.zero,
+          (total, entry) => total + _previewNutritionForEntry(entry, targets),
+        );
+        final resolvedDrafts = _entries
+            .map((entry) => _resolvedDraftForEntry(entry, targets))
+            .whereType<MealPlanEntryDraft>()
+            .toList(growable: false);
+        final resolvedCount = _entries
+            .where((entry) => _resolvedDraftForEntry(entry, targets) != null)
+            .length;
+
+        return Padding(
+          padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + viewInsets.bottom),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Meal plan',
+                            style: theme.textTheme.headlineMedium,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Build a weekly board from saved meals, recipes, and pantry items, then pin it when you want Grocery to include it.',
+                            style: theme.textTheme.bodyMedium,
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _EditorSection(
+                  title: 'Plan details',
+                  child: Column(
+                    children: [
+                      TextFormField(
+                        controller: _nameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Meal plan name',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _folderController,
+                        decoration: const InputDecoration(
+                          labelText: 'Folder / board',
+                          hintText:
+                              'Family Week, Freezer Prep, Summer Rotation',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _noteController,
+                        minLines: 2,
+                        maxLines: 4,
+                        decoration: const InputDecoration(
+                          labelText: 'Note',
+                          hintText:
+                              'Optional context, like school week or freezer prep.',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        value: _isPinned,
+                        onChanged: (value) {
+                          setState(() {
+                            _isPinned = value;
+                          });
+                        },
+                        title: const Text('Pin to Grocery export'),
+                        subtitle: const Text(
+                          'Pinned meal plans show up as a dedicated grocery export section.',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _EditorSection(
+                  title: 'Scheduled entries',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$resolvedCount of ${_entries.length} entries ready • ${previewNutrition.calories} cal • ${previewNutrition.protein}g protein',
+                        style: theme.textTheme.bodyLarge,
+                      ),
+                      const SizedBox(height: 12),
+                      ..._entries.asMap().entries.map(
+                        (item) => Padding(
+                          padding: const EdgeInsets.only(bottom: 14),
+                          child: _buildMealPlanEntryCard(
+                            context,
+                            item.key,
+                            item.value,
+                            targets,
+                          ),
+                        ),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _addEntry,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add scheduled entry'),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _EditorSection(
+                  title: 'Weekly board preview',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Resolved entries appear on the weekly board as you build the plan.',
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                      const SizedBox(height: 12),
+                      _MealPlanBoardPreview(entries: resolvedDrafts),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: () => _submit(targets),
+                        child: const Text('Save meal plan'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMealPlanEntryCard(
+    BuildContext context,
+    int index,
+    _MealPlanEntryControllers entry,
+    List<FoodLogEntryTarget> targets,
+  ) {
+    final theme = Theme.of(context);
+    final target = _selectedTarget(entry, targets);
+    final resolution = _resolutionForEntry(entry, target);
+    final previewNutrition = target != null && resolution.isResolved
+        ? target.nutrition.scale(resolution.referenceUnits!)
+        : NutritionSnapshot.zero;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0E6D7),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Entry ${index + 1}',
+                  style: theme.textTheme.titleMedium,
+                ),
+              ),
+              if (_entries.length > 1)
+                IconButton(
+                  onPressed: () => _removeEntry(entry),
+                  icon: const Icon(Icons.delete_outline),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<MealPlanDaySlot>(
+                  initialValue: entry.daySlot,
+                  decoration: const InputDecoration(labelText: 'Day'),
+                  items: MealPlanDaySlot.values
+                      .map(
+                        (slot) => DropdownMenuItem(
+                          value: slot,
+                          child: Text(slot.label),
+                        ),
+                      )
+                      .toList(growable: false),
+                  onChanged: (value) {
+                    if (value == null) {
+                      return;
+                    }
+                    setState(() {
+                      entry.daySlot = value;
+                    });
+                  },
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: DropdownButtonFormField<FoodLogMealSlot>(
+                  initialValue: entry.mealSlot,
+                  decoration: const InputDecoration(labelText: 'Meal slot'),
+                  items: FoodLogMealSlot.values
+                      .map(
+                        (slot) => DropdownMenuItem(
+                          value: slot,
+                          child: Text(slot.label),
+                        ),
+                      )
+                      .toList(growable: false),
+                  onChanged: (value) {
+                    if (value == null) {
+                      return;
+                    }
+                    setState(() {
+                      entry.mealSlot = value;
+                    });
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            key: ValueKey('meal-plan-target-$index-${entry.targetId}'),
+            initialValue: entry.targetId,
+            decoration: const InputDecoration(labelText: 'Food source'),
+            items: targets
+                .map(
+                  (target) => DropdownMenuItem<String>(
+                    value: target.id,
+                    child: Text('${target.title} (${target.sourceType.label})'),
+                  ),
+                )
+                .toList(growable: false),
+            onChanged: (value) => _setEntryTarget(entry, value, targets),
+          ),
+          if (target != null) ...[
+            const SizedBox(height: 8),
+            Text(target.subtitle, style: theme.textTheme.bodySmall),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: entry.quantityController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(labelText: 'Quantity'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextFormField(
+                  controller: entry.unitController,
+                  decoration: const InputDecoration(labelText: 'Unit'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _NutritionPreviewGrid(nutrition: previewNutrition),
+          if (_entryWarningText(target, resolution, entry) case final warning?)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Text(
+                warning,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: const Color(0xFFB34F3F),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _submit(List<FoodLogEntryTarget> targets) {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Give this meal plan a name.')),
+      );
+      return;
+    }
+
+    final drafts = _entries
+        .map((entry) => _resolvedDraftForEntry(entry, targets))
+        .whereType<MealPlanEntryDraft>()
+        .toList(growable: false);
+    if (drafts.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Add at least one scheduled entry.')),
+      );
+      return;
+    }
+    if (drafts.length != _entries.length) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Fix or remove incomplete scheduled entries first.'),
+        ),
+      );
+      return;
+    }
+
+    Navigator.of(context).pop(
+      MealPlanDraft(
+        name: name,
+        note: _noteController.text.trim(),
+        folderLabel: _folderController.text.trim(),
+        isPinned: _isPinned,
+        entries: drafts,
+      ),
+    );
+  }
+
+  void _addEntry() {
+    setState(() {
+      final entry = _MealPlanEntryControllers.empty();
+      entry.addListener(_handleDraftChanged);
+      _entries.add(entry);
+    });
+  }
+
+  void _removeEntry(_MealPlanEntryControllers entry) {
+    setState(() {
+      entry.dispose();
+      _entries.remove(entry);
+    });
+  }
+
+  void _setEntryTarget(
+    _MealPlanEntryControllers entry,
+    String? targetId,
+    List<FoodLogEntryTarget> targets,
+  ) {
+    final target = targets.cast<FoodLogEntryTarget?>().firstWhere(
+      (item) => item?.id == targetId,
+      orElse: () => null,
+    );
+    setState(() {
+      entry.targetId = targetId;
+      if (target != null) {
+        entry.unitController.text = target.referenceUnit;
+      }
+    });
+  }
+
+  FoodLogEntryTarget? _selectedTarget(
+    _MealPlanEntryControllers entry,
+    List<FoodLogEntryTarget> targets,
+  ) {
+    return targets.cast<FoodLogEntryTarget?>().firstWhere(
+      (item) => item?.id == entry.targetId,
+      orElse: () => null,
+    );
+  }
+
+  LinkedQuantityResolution _resolutionForEntry(
+    _MealPlanEntryControllers entry,
+    FoodLogEntryTarget? target,
+  ) {
+    if (target == null) {
+      return const LinkedQuantityResolution.invalidQuantity();
+    }
+    return MeasurementUnits.resolveLinkedReferenceUnits(
+      quantity: MeasurementUnits.parseQuantity(entry.quantityController.text),
+      ingredientUnit: entry.unitController.text,
+      referenceUnit: target.referenceUnit,
+      referenceUnitQuantity: target.referenceUnitQuantity,
+      referenceUnitEquivalentQuantity: target.referenceUnitEquivalentQuantity,
+      referenceUnitEquivalentUnit: target.referenceUnitEquivalentUnit,
+      referenceUnitWeightGrams: target.referenceUnitWeightGrams,
+    );
+  }
+
+  NutritionSnapshot _previewNutritionForEntry(
+    _MealPlanEntryControllers entry,
+    List<FoodLogEntryTarget> targets,
+  ) {
+    final target = _selectedTarget(entry, targets);
+    final resolution = _resolutionForEntry(entry, target);
+    if (target == null || !resolution.isResolved) {
+      return NutritionSnapshot.zero;
+    }
+    return target.nutrition.scale(resolution.referenceUnits!);
+  }
+
+  MealPlanEntryDraft? _resolvedDraftForEntry(
+    _MealPlanEntryControllers entry,
+    List<FoodLogEntryTarget> targets,
+  ) {
+    final target = _selectedTarget(entry, targets);
+    final resolution = _resolutionForEntry(entry, target);
+    if (target == null || !resolution.isResolved) {
+      return null;
+    }
+
+    return MealPlanEntryDraft(
+      daySlot: entry.daySlot,
+      mealSlot: entry.mealSlot,
+      sourceType: target.sourceType,
+      sourceId: target.id,
+      title: target.title,
+      quantity: entry.quantityController.text.trim(),
+      unit: entry.unitController.text.trim(),
+      nutrition: target.nutrition.scale(resolution.referenceUnits!),
+    );
+  }
+
+  String? _entryWarningText(
+    FoodLogEntryTarget? target,
+    LinkedQuantityResolution resolution,
+    _MealPlanEntryControllers entry,
+  ) {
+    if (target == null) {
+      return 'Choose a source to calculate plan nutrition.';
+    }
+    if (resolution.issue == LinkedQuantityIssue.invalidQuantity) {
+      return 'Quantity must be a positive number.';
+    }
+    if (resolution.issue == LinkedQuantityIssue.incompatibleUnit) {
+      final unitLabel = entry.unitController.text.trim().isEmpty
+          ? 'blank'
+          : entry.unitController.text.trim();
+      return 'Unit "$unitLabel" does not convert to ${MeasurementUnits.describeReferenceUnit(referenceUnit: target.referenceUnit, referenceUnitQuantity: target.referenceUnitQuantity, referenceUnitEquivalentQuantity: target.referenceUnitEquivalentQuantity, referenceUnitEquivalentUnit: target.referenceUnitEquivalentUnit, referenceUnitWeightGrams: target.referenceUnitWeightGrams)}.';
+    }
+    return null;
+  }
+
+  void _handleDraftChanged() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
+  }
+}
+
+class _MealPlanEntryControllers {
+  _MealPlanEntryControllers({
+    required this.daySlot,
+    required this.mealSlot,
+    required this.targetId,
+    required this.quantityController,
+    required this.unitController,
+  });
+
+  factory _MealPlanEntryControllers.fromDraft(MealPlanEntryDraft draft) {
+    return _MealPlanEntryControllers(
+      daySlot: draft.daySlot,
+      mealSlot: draft.mealSlot,
+      targetId: draft.sourceId,
+      quantityController: TextEditingController(text: draft.quantity),
+      unitController: TextEditingController(text: draft.unit),
+    );
+  }
+
+  factory _MealPlanEntryControllers.empty() {
+    return _MealPlanEntryControllers(
+      daySlot: MealPlanDaySlot.monday,
+      mealSlot: FoodLogMealSlot.breakfast,
+      targetId: null,
+      quantityController: TextEditingController(text: '1'),
+      unitController: TextEditingController(),
+    );
+  }
+
+  MealPlanDaySlot daySlot;
   FoodLogMealSlot mealSlot;
   String? targetId;
   final TextEditingController quantityController;
@@ -2983,6 +4458,18 @@ extension on FoodLogMealSlot {
     FoodLogMealSlot.lunch => 'Lunch',
     FoodLogMealSlot.dinner => 'Dinner',
     FoodLogMealSlot.snack => 'Snack',
+  };
+}
+
+extension on MealPlanDaySlot {
+  String get label => switch (this) {
+    MealPlanDaySlot.monday => 'Monday',
+    MealPlanDaySlot.tuesday => 'Tuesday',
+    MealPlanDaySlot.wednesday => 'Wednesday',
+    MealPlanDaySlot.thursday => 'Thursday',
+    MealPlanDaySlot.friday => 'Friday',
+    MealPlanDaySlot.saturday => 'Saturday',
+    MealPlanDaySlot.sunday => 'Sunday',
   };
 }
 

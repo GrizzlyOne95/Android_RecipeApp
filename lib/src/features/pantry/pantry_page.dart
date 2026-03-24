@@ -7,15 +7,19 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../app/recipe_app_scope.dart';
 import '../../core/measurement_units.dart';
 import '../../core/mock_data.dart';
+import '../../core/pantry_image_refs.dart';
 import '../../data/import/barcode_product_lookup.dart';
+import '../../data/import/pantry_photo_importer.dart';
 import '../../data/repositories/app_repositories.dart';
 import '../shell/app_shell.dart';
+import 'pantry_local_image_provider.dart';
 
 Future<PantryItemDraft?> showPantryItemEditorSheet(
   BuildContext context, {
   PantryItemDraft? initialDraft,
   String? existingItemName,
   PantryBarcodeImporter? barcodeImporter,
+  PantryPhotoImporter? photoImporter,
   String? initialImportSummary,
   String? initialImportImageUrl,
 }) {
@@ -27,6 +31,7 @@ Future<PantryItemDraft?> showPantryItemEditorSheet(
       initialDraft: initialDraft,
       existingItemName: existingItemName,
       barcodeImporter: barcodeImporter,
+      photoImporter: photoImporter,
       initialImportSummary: initialImportSummary,
       initialImportImageUrl: initialImportImageUrl,
     ),
@@ -34,9 +39,10 @@ Future<PantryItemDraft?> showPantryItemEditorSheet(
 }
 
 class PantryPage extends StatefulWidget {
-  const PantryPage({super.key, this.barcodeImporter});
+  const PantryPage({super.key, this.barcodeImporter, this.photoImporter});
 
   final PantryBarcodeImporter? barcodeImporter;
+  final PantryPhotoImporter? photoImporter;
 
   @override
   State<PantryPage> createState() => _PantryPageState();
@@ -81,6 +87,27 @@ class _PantryPageState extends State<PantryPage> {
             builder: (context, snapshot) {
               final items = snapshot.data ?? const <PantryItem>[];
 
+              if (items.isEmpty) {
+                return EmptyStateCard(
+                  title: 'No pantry items yet',
+                  body:
+                      'Add the real products you keep on hand so recipes and saved meals can calculate nutrition from your own pantry records.',
+                  actions: [
+                    FilledButton.icon(
+                      onPressed: () => _openEditor(context, repository),
+                      icon: const Icon(Icons.add),
+                      label: const Text('Manual item'),
+                    ),
+                    FilledButton.tonalIcon(
+                      onPressed: () =>
+                          _startBarcodeItemFlow(context, repository),
+                      icon: const Icon(Icons.qr_code_scanner),
+                      label: const Text('Scan barcode'),
+                    ),
+                  ],
+                );
+              }
+
               return Column(
                 children: items
                     .map(
@@ -118,6 +145,7 @@ class _PantryPageState extends State<PantryPage> {
       existingItemName: item?.name,
       barcodeImporter:
           widget.barcodeImporter ?? CompositePantryBarcodeImporter(),
+      photoImporter: widget.photoImporter ?? PantryPhotoImporter(),
       initialImportSummary: initialImportSummary,
       initialImportImageUrl: initialImportImageUrl,
     );
@@ -439,6 +467,7 @@ class _PantryEditorSheet extends StatefulWidget {
     this.initialDraft,
     this.existingItemName,
     this.barcodeImporter,
+    this.photoImporter,
     this.initialImportSummary,
     this.initialImportImageUrl,
   });
@@ -446,6 +475,7 @@ class _PantryEditorSheet extends StatefulWidget {
   final PantryItemDraft? initialDraft;
   final String? existingItemName;
   final PantryBarcodeImporter? barcodeImporter;
+  final PantryPhotoImporter? photoImporter;
   final String? initialImportSummary;
   final String? initialImportImageUrl;
 
@@ -483,8 +513,11 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
   late final TextEditingController _sugarController;
   late Color _selectedAccent;
   bool _isImportingBarcode = false;
+  bool _isImportingPhoto = false;
   String? _importSummary;
   String? _importImageUrl;
+  String? _retainedLocalImageRef;
+  PickedPantryPhoto? _pendingPhoto;
 
   @override
   void initState() {
@@ -503,8 +536,14 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
     _brandController = TextEditingController(text: draft.brand ?? '');
     _barcodeController = TextEditingController(text: draft.barcode ?? '');
     _quantityLabelController = TextEditingController(text: draft.quantityLabel);
+    _retainedLocalImageRef = isLocalPantryImageRef(draft.imageUrl)
+        ? draft.imageUrl
+        : null;
     _imageUrlController = TextEditingController(
-      text: draft.imageUrl ?? widget.initialImportImageUrl ?? '',
+      text:
+          normalizedNetworkImageUrl(draft.imageUrl) ??
+          normalizedNetworkImageUrl(widget.initialImportImageUrl) ??
+          '',
     );
     _referenceQuantityController = TextEditingController(
       text: MeasurementUnits.formatDecimal(draft.referenceUnitQuantity),
@@ -554,6 +593,7 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
     for (final controller in _livePreviewControllers) {
       controller.addListener(_handleDraftChanged);
     }
+    _imageUrlController.addListener(_handleDraftChanged);
   }
 
   Iterable<TextEditingController> get _livePreviewControllers => [
@@ -569,6 +609,7 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
     for (final controller in _livePreviewControllers) {
       controller.removeListener(_handleDraftChanged);
     }
+    _imageUrlController.removeListener(_handleDraftChanged);
     _nameController.dispose();
     _brandController.dispose();
     _barcodeController.dispose();
@@ -606,6 +647,9 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
       referenceUnitEquivalentUnit: _equivalentUnitController.text.trim(),
       referenceUnitWeightGrams: _parsePositiveDouble(_weightGramsController),
     );
+    final imagePreviewRef = _effectiveImagePreviewRef;
+    final hasImage = imagePreviewRef != null;
+    final imageStatus = _imageStatusLabel;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + viewInsets.bottom),
@@ -702,16 +746,126 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
                       validator: _requiredText,
                     ),
                     const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF7F1E5),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _PantryItemImage(
+                            imageUrl: imagePreviewRef,
+                            accent: _selectedAccent,
+                            size: 76,
+                            borderRadius: 18,
+                            iconSize: 32,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Product image',
+                                  style: theme.textTheme.titleMedium,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  imageStatus,
+                                  style: theme.textTheme.bodyMedium,
+                                ),
+                                const SizedBox(height: 10),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    FilledButton.tonalIcon(
+                                      onPressed:
+                                          _supportsPhotoLibrary &&
+                                              !_isImportingPhoto
+                                          ? () => _pickPantryPhoto(
+                                              PantryPhotoSource.gallery,
+                                            )
+                                          : null,
+                                      icon: _isImportingPhoto
+                                          ? const SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                              ),
+                                            )
+                                          : const Icon(
+                                              Icons.photo_library_outlined,
+                                            ),
+                                      label: const Text('Library'),
+                                    ),
+                                    FilledButton.tonalIcon(
+                                      onPressed:
+                                          _supportsCameraPhoto &&
+                                              !_isImportingPhoto
+                                          ? () => _pickPantryPhoto(
+                                              PantryPhotoSource.camera,
+                                            )
+                                          : null,
+                                      icon: const Icon(
+                                        Icons.photo_camera_outlined,
+                                      ),
+                                      label: const Text('Take photo'),
+                                    ),
+                                    OutlinedButton.icon(
+                                      onPressed: hasImage ? _clearImage : null,
+                                      icon: const Icon(Icons.delete_outline),
+                                      label: const Text('Clear image'),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     TextFormField(
                       controller: _imageUrlController,
                       keyboardType: TextInputType.url,
                       decoration: const InputDecoration(
-                        labelText: 'Product image URL',
+                        labelText: 'Remote image URL',
                         hintText: 'https://example.com/product.jpg',
                         helperText:
-                            'Imported barcode images can be kept, replaced, or cleared here.',
+                            'Paste a web image URL, or use the photo buttons above for an on-device pantry photo.',
                       ),
                     ),
+                    if (_pendingPhoto != null || _retainedLocalImageRef != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              Chip(
+                                avatar: Icon(
+                                  _pendingPhoto != null
+                                      ? Icons.photo_camera_back_outlined
+                                      : Icons.phone_android_outlined,
+                                  size: 18,
+                                ),
+                                label: Text(
+                                  _pendingPhoto != null
+                                      ? '${_pendingPhoto!.source == PantryPhotoSource.camera ? 'New camera photo' : 'New library photo'} selected'
+                                      : 'Local pantry photo stays on this device',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _sourceController,
@@ -941,17 +1095,109 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
     return 'Grain';
   }
 
-  void _submit() {
+  String? get _effectiveImagePreviewRef {
+    if (_pendingPhoto case final pendingPhoto?) {
+      return pendingPhoto.previewRef;
+    }
+
+    final remoteImageUrl = normalizedNetworkImageUrl(_imageUrlController.text);
+    if (remoteImageUrl != null) {
+      return remoteImageUrl;
+    }
+
+    return _retainedLocalImageRef;
+  }
+
+  String get _imageStatusLabel {
+    if (_pendingPhoto case final pendingPhoto?) {
+      return pendingPhoto.source == PantryPhotoSource.camera
+          ? 'A new camera photo will be saved on this device when you save the pantry item.'
+          : 'A new library photo will be saved on this device when you save the pantry item.';
+    }
+
+    final remoteImageUrl = normalizedNetworkImageUrl(_imageUrlController.text);
+    if (remoteImageUrl != null) {
+      return 'Using a remote product image link that can sync across devices.';
+    }
+
+    if (_retainedLocalImageRef != null) {
+      return 'Using a device-local pantry photo that stays on this phone or tablet.';
+    }
+
+    return 'No product image yet. You can paste a remote URL or save a local pantry photo.';
+  }
+
+  bool get _supportsPhotoLibrary {
+    if (kIsWeb) {
+      return false;
+    }
+
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.android ||
+      TargetPlatform.iOS ||
+      TargetPlatform.macOS => true,
+      _ => false,
+    };
+  }
+
+  bool get _supportsCameraPhoto {
+    if (kIsWeb) {
+      return false;
+    }
+
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.android || TargetPlatform.iOS => true,
+      _ => false,
+    };
+  }
+
+  Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) {
       return;
     }
 
+    final previousLocalImageRef =
+        isLocalPantryImageRef(widget.initialDraft?.imageUrl)
+        ? widget.initialDraft?.imageUrl
+        : null;
+    String? imageRef;
+    if (_pendingPhoto case final pendingPhoto?) {
+      final importer = widget.photoImporter;
+      if (importer == null) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Pantry photo saving is unavailable right now. You can still use a remote image URL.',
+            ),
+          ),
+        );
+        return;
+      }
+      imageRef = await importer.persistPickedPhoto(pendingPhoto);
+    } else {
+      imageRef =
+          normalizedNetworkImageUrl(_imageUrlController.text) ??
+          _retainedLocalImageRef;
+    }
+
+    if (previousLocalImageRef != null &&
+        previousLocalImageRef != imageRef &&
+        widget.photoImporter != null) {
+      await widget.photoImporter!.deleteStoredPhoto(previousLocalImageRef);
+    }
+
+    if (!mounted) {
+      return;
+    }
     Navigator.of(context).pop(
       PantryItemDraft(
         name: _nameController.text.trim(),
         brand: _normalizedOptionalText(_brandController.text),
         barcode: _normalizedOptionalText(_barcodeController.text),
-        imageUrl: _normalizedOptionalText(_imageUrlController.text),
+        imageUrl: imageRef,
         quantityLabel: _quantityLabelController.text.trim(),
         referenceUnitQuantity:
             _parsePositiveDouble(_referenceQuantityController) ?? 1,
@@ -989,6 +1235,62 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
       return;
     }
     setState(() {});
+  }
+
+  Future<void> _pickPantryPhoto(PantryPhotoSource source) async {
+    final importer = widget.photoImporter;
+    if (importer == null) {
+      return;
+    }
+
+    setState(() {
+      _isImportingPhoto = true;
+    });
+
+    try {
+      final pickedPhoto = await importer.pickPhoto(source);
+      if (!mounted || pickedPhoto == null) {
+        return;
+      }
+
+      setState(() {
+        _pendingPhoto = pickedPhoto;
+        _imageUrlController.clear();
+      });
+    } on PantryPhotoImportException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Pantry photo import failed unexpectedly. Try again or keep using a remote image URL.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isImportingPhoto = false;
+        });
+      }
+    }
+  }
+
+  void _clearImage() {
+    setState(() {
+      _pendingPhoto = null;
+      _retainedLocalImageRef = null;
+      _imageUrlController.clear();
+      _importImageUrl = null;
+    });
   }
 
   Future<void> _importBarcodeFromField() async {
@@ -1055,7 +1357,14 @@ class _PantryEditorSheetState extends State<_PantryEditorSheet> {
     _brandController.text = draft.brand ?? '';
     _barcodeController.text = draft.barcode ?? '';
     _quantityLabelController.text = draft.quantityLabel;
-    _imageUrlController.text = draft.imageUrl ?? result.imageUrl ?? '';
+    _retainedLocalImageRef = isLocalPantryImageRef(draft.imageUrl)
+        ? draft.imageUrl
+        : null;
+    _pendingPhoto = null;
+    _imageUrlController.text =
+        normalizedNetworkImageUrl(draft.imageUrl) ??
+        normalizedNetworkImageUrl(result.imageUrl) ??
+        '';
     _referenceQuantityController.text = MeasurementUnits.formatDecimal(
       draft.referenceUnitQuantity,
     );
@@ -1181,7 +1490,8 @@ class _PantryItemImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final resolvedImageUrl = _normalizedNetworkImageUrl(imageUrl);
+    final resolvedImageUrl = normalizedNetworkImageUrl(imageUrl);
+    final localImageProvider = pantryLocalImageProvider(imageUrl);
     final fallback = Container(
       width: size,
       height: size,
@@ -1193,7 +1503,19 @@ class _PantryItemImage extends StatelessWidget {
     );
 
     if (resolvedImageUrl == null) {
-      return fallback;
+      if (localImageProvider == null) {
+        return fallback;
+      }
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(borderRadius),
+        child: Image(
+          image: localImageProvider,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => fallback,
+        ),
+      );
     }
 
     return ClipRRect(
@@ -1259,18 +1581,6 @@ class _ImportedBarcodePreview extends StatelessWidget {
       ),
     );
   }
-}
-
-String? _normalizedNetworkImageUrl(String? value) {
-  final trimmed = value?.trim() ?? '';
-  if (trimmed.isEmpty) {
-    return null;
-  }
-  final uri = Uri.tryParse(trimmed);
-  if (uri == null || !(uri.scheme == 'http' || uri.scheme == 'https')) {
-    return null;
-  }
-  return trimmed;
 }
 
 class _BarcodeLookupDialog extends StatelessWidget {

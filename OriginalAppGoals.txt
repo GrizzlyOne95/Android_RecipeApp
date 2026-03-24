@@ -1,0 +1,28 @@
+I am trying to make an android mobile recipe app for saving and managing recipes, while also functioning as a nutrition and calorie tracker per serving of food. 
+
+Here are the features I want it to have:
+
+Ability to browse and save online and manually entered recipes
+ability scan barcodes to add the food items I actually use and their nutritional facts so that I can easily calculate a recipes calories/nutrition by selecting from items that I own (a “my pantry” section of the app
+ability to scan food barcodes to auto-import nutrition facts/item pictures
+automatically suggest saved pantry items to pull nutrition facts from in a recipe
+ability to add a recipe as an ingredient in another (for example, being able to use nutrition facts of 1 serving of pie crust recipe in a quiche recipe)
+Have 4 main tabs: Recipes (my saved recipes), Grocery List (where I can automatically add recipe ingredients for easy shopping), and Pantry (where I can scan/save the items I actually use in my pantry), and a Food Log tab (where you can track your calories/what you ate in a day)
+In the Food Log, you can have a “saved meal” pop up with a dropdown menu where you can adjust the quantity of ingredients without affecting the master meal file.
+Actual good recipe files where I can adjust the order of ingredients, add directions, have an auto scale function for multiplying a recipe
+Ability to add individual ingredients to a meal plan, not just recipes (for example, Chili night would have the recipes cards for Chili and Cornbread, but I could also add sour cream to the list as well, so I can see all the components of the meal visually. 
+Ability to have “version” tabs in a master recipe file so I can copy the master recipe, make changes to it, and save variations that I like
+Ability to update a master recipe file, and when I do the app will automatically update the calorie count and nutrition facts of the other recipes/meals that contain that item (but also prompt an “Are you sure?” to make sure you don’t change info for something you don’t want to)
+App automatically does the math for scale, weight, and unit conversions for you.
+Ability to sort by calorie/serving: highest to lowest and also lowest to highest
+Ability to pin master folders “e.g. a full meal plan folder) with ability to export to shopping list. 
+Tracking for carbs, fats, protein, AND fiber in a meal and for the day
+Suggested meals from your own meals and recipes to help fill in the macros you’re shooting for
+Adjustable macro and calorie goals
+Ability to “favorite” or add notes on particular scaling numbers (for example: single serve, Max for ninja foodie pot, etc)
+
+
+
+My goal with this project is to make a recipe app that streamlines all the major tasks that go along with feeding oneself and/or family: planning meals and prep, grocery shopping, and making sure to have balanced, moderate meals. I also want it to be customizable and easy-to-use, with many different ways to sort, categorize, and visually organize the components in the app in a way that makes the most sense to the user. 
+
+

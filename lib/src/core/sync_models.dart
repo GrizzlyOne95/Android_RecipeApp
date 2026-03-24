@@ -4,6 +4,7 @@ enum SyncEntityType {
   groceryItem,
   savedMeal,
   dayPlan,
+  mealPlan,
   foodLogEntry,
 }
 
@@ -41,6 +42,13 @@ class SyncEntityCount {
   final int count;
 }
 
+class SyncDiagnosticEntry {
+  const SyncDiagnosticEntry({required this.message, required this.recordedAt});
+
+  final String message;
+  final DateTime recordedAt;
+}
+
 class SyncStatus {
   const SyncStatus({
     required this.authState,
@@ -52,9 +60,13 @@ class SyncStatus {
     this.accountId,
     this.connectedAt,
     this.lastLocalChangeAt,
+    this.oldestPendingChangeAt,
     this.lastSyncedAt,
+    this.lastSyncSummary,
     this.lastErrorMessage,
     this.lastConflictMessage,
+    this.recentErrors = const <SyncDiagnosticEntry>[],
+    this.recentConflicts = const <SyncDiagnosticEntry>[],
     this.isSyncing = false,
   });
 
@@ -73,9 +85,13 @@ class SyncStatus {
   final String? accountId;
   final DateTime? connectedAt;
   final DateTime? lastLocalChangeAt;
+  final DateTime? oldestPendingChangeAt;
   final DateTime? lastSyncedAt;
+  final String? lastSyncSummary;
   final String? lastErrorMessage;
   final String? lastConflictMessage;
+  final List<SyncDiagnosticEntry> recentErrors;
+  final List<SyncDiagnosticEntry> recentConflicts;
   final bool isSyncing;
   final List<SyncEntityCount> pendingItems;
 
@@ -96,6 +112,7 @@ extension SyncEntityTypeLabel on SyncEntityType {
     SyncEntityType.groceryItem => 'Grocery',
     SyncEntityType.savedMeal => 'Saved Meals',
     SyncEntityType.dayPlan => 'Day Plans',
+    SyncEntityType.mealPlan => 'Meal Plans',
     SyncEntityType.foodLogEntry => 'Food Log',
   };
 }

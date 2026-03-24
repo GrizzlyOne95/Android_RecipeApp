@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-
 import '../../app/recipe_app_scope.dart';
-import '../../core/mock_data.dart';
 import '../../core/sync_models.dart';
 import '../food_log/food_log_page.dart';
 import '../grocery/grocery_page.dart';
@@ -266,6 +264,9 @@ class ShellScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final todayLabel = MaterialLocalizations.of(
+      context,
+    ).formatFullDate(RecipeAppScope.of(context).repositories.today);
 
     return Align(
       alignment: Alignment.topCenter,
@@ -315,7 +316,7 @@ class ShellScaffold extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  SeedData.todayLabel,
+                                  todayLabel,
                                   style: theme.textTheme.bodyMedium,
                                 ),
                               ],
@@ -354,6 +355,42 @@ class SectionTitle extends StatelessWidget {
           const SizedBox(height: 4),
           Text(caption, style: theme.textTheme.bodyMedium),
         ],
+      ),
+    );
+  }
+}
+
+class EmptyStateCard extends StatelessWidget {
+  const EmptyStateCard({
+    super.key,
+    required this.title,
+    required this.body,
+    this.actions = const <Widget>[],
+  });
+
+  final String title;
+  final String body;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: theme.textTheme.titleLarge),
+            const SizedBox(height: 8),
+            Text(body, style: theme.textTheme.bodyMedium),
+            if (actions.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Wrap(spacing: 10, runSpacing: 10, children: actions),
+            ],
+          ],
+        ),
       ),
     );
   }

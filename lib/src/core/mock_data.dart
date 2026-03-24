@@ -420,27 +420,32 @@ class GroceryExportSettings {
     required this.includePinnedRecipes,
     required this.includeSavedMeals,
     required this.includeDayPlans,
+    required this.includeMealPlans,
   });
 
   static const defaults = GroceryExportSettings(
     includePinnedRecipes: true,
     includeSavedMeals: true,
     includeDayPlans: true,
+    includeMealPlans: true,
   );
 
   final bool includePinnedRecipes;
   final bool includeSavedMeals;
   final bool includeDayPlans;
+  final bool includeMealPlans;
 
   GroceryExportSettings copyWith({
     bool? includePinnedRecipes,
     bool? includeSavedMeals,
     bool? includeDayPlans,
+    bool? includeMealPlans,
   }) {
     return GroceryExportSettings(
       includePinnedRecipes: includePinnedRecipes ?? this.includePinnedRecipes,
       includeSavedMeals: includeSavedMeals ?? this.includeSavedMeals,
       includeDayPlans: includeDayPlans ?? this.includeDayPlans,
+      includeMealPlans: includeMealPlans ?? this.includeMealPlans,
     );
   }
 }
@@ -663,12 +668,14 @@ class FoodLogSnapshot {
     required this.goals,
     required this.savedMeals,
     required this.dayPlans,
+    required this.mealPlans,
     required this.entries,
   });
 
   final List<DailyGoal> goals;
   final List<SavedMeal> savedMeals;
   final List<DayPlan> dayPlans;
+  final List<MealPlan> mealPlans;
   final List<FoodLogEntry> entries;
 }
 
@@ -752,6 +759,113 @@ class DayPlan {
 
   DayPlanDraft toDraft() {
     return DayPlanDraft(name: name, note: note, entries: entries);
+  }
+}
+
+enum MealPlanDaySlot {
+  monday,
+  tuesday,
+  wednesday,
+  thursday,
+  friday,
+  saturday,
+  sunday,
+}
+
+class MealPlanEntryDraft {
+  const MealPlanEntryDraft({
+    required this.daySlot,
+    required this.mealSlot,
+    required this.sourceType,
+    required this.sourceId,
+    required this.title,
+    required this.quantity,
+    required this.unit,
+    required this.nutrition,
+  });
+
+  final MealPlanDaySlot daySlot;
+  final FoodLogMealSlot mealSlot;
+  final FoodLogEntrySourceType sourceType;
+  final String sourceId;
+  final String title;
+  final String quantity;
+  final String unit;
+  final NutritionSnapshot nutrition;
+}
+
+class MealPlanDraft {
+  const MealPlanDraft({
+    required this.name,
+    this.note = '',
+    this.folderLabel,
+    this.isPinned = false,
+    required this.entries,
+  });
+
+  final String name;
+  final String note;
+  final String? folderLabel;
+  final bool isPinned;
+  final List<MealPlanEntryDraft> entries;
+
+  MealPlanDraft copyWith({
+    String? name,
+    String? note,
+    String? folderLabel,
+    bool? isPinned,
+    List<MealPlanEntryDraft>? entries,
+  }) {
+    return MealPlanDraft(
+      name: name ?? this.name,
+      note: note ?? this.note,
+      folderLabel: folderLabel ?? this.folderLabel,
+      isPinned: isPinned ?? this.isPinned,
+      entries: entries ?? this.entries,
+    );
+  }
+}
+
+class MealPlan {
+  const MealPlan({
+    required this.id,
+    required this.name,
+    required this.note,
+    this.folderLabel,
+    required this.isPinned,
+    required this.entries,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String name;
+  final String note;
+  final String? folderLabel;
+  final bool isPinned;
+  final List<MealPlanEntryDraft> entries;
+  final DateTime createdAt;
+
+  NutritionSnapshot get nutrition => entries.fold(
+    NutritionSnapshot.zero,
+    (total, entry) => total + entry.nutrition,
+  );
+
+  int get scheduledDayCount =>
+      entries.map((entry) => entry.daySlot).toSet().length;
+
+  String get folderDisplayLabel {
+    final trimmed = folderLabel?.trim() ?? '';
+    return trimmed.isEmpty ? 'Loose Plans' : trimmed;
+  }
+
+  MealPlanDraft toDraft() {
+    return MealPlanDraft(
+      name: name,
+      note: note,
+      folderLabel: folderLabel,
+      isPinned: isPinned,
+      entries: entries,
+    );
   }
 }
 
@@ -1240,6 +1354,90 @@ abstract final class SeedData {
             ),
           )
           .toList(growable: false),
+    ),
+  ];
+
+  static final mealPlans = <MealPlanDraft>[
+    MealPlanDraft(
+      name: 'Weeknight Rotation Board',
+      note:
+          'A pinned weekly planner that mixes saved meals, standalone recipes, and pantry staples.',
+      folderLabel: 'Family Week',
+      isPinned: true,
+      entries: const [
+        MealPlanEntryDraft(
+          daySlot: MealPlanDaySlot.monday,
+          mealSlot: FoodLogMealSlot.breakfast,
+          sourceType: FoodLogEntrySourceType.savedMeal,
+          sourceId: 'saved_meal_1',
+          title: 'High-Protein Breakfast',
+          quantity: '1',
+          unit: 'meal',
+          nutrition: NutritionSnapshot(
+            calories: 410,
+            protein: 35,
+            carbs: 31,
+            fat: 14,
+            fiber: 4,
+            sodium: 470,
+            sugar: 9,
+          ),
+        ),
+        MealPlanEntryDraft(
+          daySlot: MealPlanDaySlot.monday,
+          mealSlot: FoodLogMealSlot.dinner,
+          sourceType: FoodLogEntrySourceType.savedMeal,
+          sourceId: 'saved_meal_0',
+          title: 'Chili Night',
+          quantity: '1',
+          unit: 'meal',
+          nutrition: NutritionSnapshot(
+            calories: 642,
+            protein: 37,
+            carbs: 52,
+            fat: 31,
+            fiber: 11,
+            sodium: 980,
+            sugar: 8,
+          ),
+        ),
+        MealPlanEntryDraft(
+          daySlot: MealPlanDaySlot.tuesday,
+          mealSlot: FoodLogMealSlot.lunch,
+          sourceType: FoodLogEntrySourceType.recipe,
+          sourceId: 'recipe_1',
+          title: 'Weeknight Turkey Chili',
+          quantity: '1',
+          unit: 'serving',
+          nutrition: NutritionSnapshot(
+            calories: 328,
+            protein: 29,
+            carbs: 22,
+            fat: 13,
+            fiber: 8,
+            sodium: 560,
+            sugar: 5,
+          ),
+        ),
+        MealPlanEntryDraft(
+          daySlot: MealPlanDaySlot.wednesday,
+          mealSlot: FoodLogMealSlot.snack,
+          sourceType: FoodLogEntrySourceType.pantryItem,
+          sourceId: 'pantry_0',
+          title: 'Nonfat Greek Yogurt',
+          quantity: '1',
+          unit: 'serving',
+          nutrition: NutritionSnapshot(
+            calories: 90,
+            protein: 18,
+            carbs: 6,
+            fat: 0,
+            fiber: 0,
+            sodium: 65,
+            sugar: 5,
+          ),
+        ),
+      ],
     ),
   ];
 

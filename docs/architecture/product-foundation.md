@@ -110,6 +110,15 @@ Drift is now the local persistence baseline because this app has strongly relati
 - quantity snapshot
 - nutrition snapshot
 
+### Meal Plan
+
+- id
+- title
+- note
+- pinned for grocery export
+- scheduled entries by weekday and meal slot
+- timestamps
+
 ### Grocery List Item
 
 - id
@@ -131,20 +140,21 @@ The current repository implementation has moved well beyond the initial shell sl
 - pantry CRUD with brand and barcode capture
 - camera barcode scanning with Open Food Facts plus USDA fallback nutrition import
 - persisted pantry product image URLs for imported product artwork
-- grocery export from pinned recipes, saved meals, and day plans plus manual quick-add flows
+- grocery export from pinned recipes, saved meals, day plans, and pinned meal plans plus manual quick-add flows
 - food-log entry, daily goal rollups, and saved-meal logging
 - food-log suggestion cards that rank saved meals, recipes, and pantry items against remaining goals
 - reusable Food Log day plans that can be captured from a logged day and replayed into today
 - direct Food Log day-plan authoring/editing with linked saved meals, recipes, and pantry items
+- weekly meal-plan boards with mixed recipe, saved-meal, and pantry scheduling plus grocery-export pinning
 - universal quick add from the app shell
-- local-first sync queue, Sync Center UI, and pull-first merge across recipes, pantry, grocery, saved meals, day plans, and food log
+- local-first sync queue, Sync Center UI, and pull-first merge across recipes, pantry, grocery, saved meals, day plans, meal plans, and food log
 - optional Firebase Auth + Firestore push scaffolding for the existing Firebase project
 
 ## Recommended Next Milestones
 
 1. Complete Firebase console enablement and validate live Android sign-in plus Firestore push.
 2. Validate full-entity cloud pull/merge behavior against live Firebase data.
-3. Turn the new Food Log suggestion layer, reusable day plans, and grocery-linked planning flow into fuller meal-planning views and mixed plan assemblies.
-4. Improve sync diagnostics, retry handling, and conflict transparency.
-5. Add richer pantry media handling such as manual photo capture and local image management.
+3. Improve sync diagnostics, retry handling, and conflict transparency for the expanded synced entity set.
+4. Add richer pantry media handling such as manual photo capture and local image management.
+5. Deepen planning organization with richer foldering, categorization, and calendar-style views.
 6. Add Mac-based iOS sign-in verification once Apple-side setup is available.

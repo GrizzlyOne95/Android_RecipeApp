@@ -303,6 +303,7 @@ class FirebaseCloudSyncGateway implements CloudSyncGateway {
       SyncEntityType.groceryItem,
       SyncEntityType.savedMeal,
       SyncEntityType.dayPlan,
+      SyncEntityType.mealPlan,
       SyncEntityType.foodLogEntry,
     ];
 
@@ -370,6 +371,7 @@ class FirebaseCloudSyncGateway implements CloudSyncGateway {
       SyncEntityType.groceryItem => 'grocery_items',
       SyncEntityType.savedMeal => 'saved_meals',
       SyncEntityType.dayPlan => 'day_plans',
+      SyncEntityType.mealPlan => 'meal_plans',
       SyncEntityType.foodLogEntry => 'food_log_entries',
     };
   }

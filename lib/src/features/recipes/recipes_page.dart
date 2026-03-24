@@ -50,6 +50,30 @@ class _RecipesPageState extends State<RecipesPage> {
             builder: (context, snapshot) {
               final recipes = snapshot.data ?? const <RecipeSummary>[];
 
+              if (recipes.isEmpty) {
+                return EmptyStateCard(
+                  title: 'No recipes yet',
+                  body:
+                      'Start with your own recipe data by creating one manually or importing a recipe you actually use.',
+                  actions: [
+                    FilledButton.icon(
+                      onPressed: () => _openEditor(context, repository),
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add recipe'),
+                    ),
+                    FilledButton.tonalIcon(
+                      onPressed: () => _openImport(
+                        context,
+                        repository,
+                        RecipeImportMode.textPaste,
+                      ),
+                      icon: const Icon(Icons.file_download_outlined),
+                      label: const Text('Import text'),
+                    ),
+                  ],
+                );
+              }
+
               return LayoutBuilder(
                 builder: (context, constraints) {
                   final columns = constraints.maxWidth >= 1100
@@ -392,6 +416,13 @@ class _RecipeImportSheetState extends State<_RecipeImportSheet> {
       ..._ocrWarnings,
       ...result.warnings,
     ];
+    final combinedReviewNotes = <String>[
+      ...result.reviewNotes,
+      if (_fetchWarnings.isNotEmpty)
+        'Fetched page text may still need cleanup before saving.',
+      if (_ocrWarnings.isNotEmpty)
+        'OCR extraction raised warnings. Double-check ingredient quantities.',
+    ];
     final hasInput =
         _sourceController.text.trim().isNotEmpty ||
         _urlController.text.trim().isNotEmpty;
@@ -554,6 +585,8 @@ class _RecipeImportSheetState extends State<_RecipeImportSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  _ImportConfidenceCard(result: result),
+                  const SizedBox(height: 12),
                   Text(result.draft.name, style: theme.textTheme.titleLarge),
                   const SizedBox(height: 8),
                   Text(
@@ -561,22 +594,86 @@ class _RecipeImportSheetState extends State<_RecipeImportSheet> {
                     style: theme.textTheme.bodyLarge,
                   ),
                   const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: result.checks
+                        .map((check) => _ImportCheckChip(check: check))
+                        .toList(growable: false),
+                  ),
+                  const SizedBox(height: 12),
                   _NutritionPreviewGrid(nutrition: result.draft.nutrition),
                   if (result.draft.note.trim().isNotEmpty) ...[
                     const SizedBox(height: 12),
                     Text(result.draft.note, style: theme.textTheme.bodyMedium),
                   ],
+                  if (combinedReviewNotes.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Text(
+                      'Review Before Saving',
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    ...combinedReviewNotes.map(
+                      (note) => Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Padding(
+                              padding: EdgeInsets.only(top: 3),
+                              child: Icon(
+                                Icons.checklist_rtl_outlined,
+                                size: 16,
+                                color: Color(0xFF7B5138),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text(note)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                   if (combinedWarnings.isNotEmpty) ...[
                     const SizedBox(height: 14),
+                    Text('Warnings', style: theme.textTheme.titleMedium),
+                    const SizedBox(height: 8),
                     ...combinedWarnings.map(
                       (warning) => Padding(
                         padding: const EdgeInsets.only(bottom: 6),
-                        child: Text(
-                          warning,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: const Color(0xFFB34F3F),
-                          ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Padding(
+                              padding: EdgeInsets.only(top: 3),
+                              child: Icon(
+                                Icons.warning_amber_rounded,
+                                size: 16,
+                                color: Color(0xFFB34F3F),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                warning,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: const Color(0xFFB34F3F),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
+                      ),
+                    ),
+                  ],
+                  if (result.confidence == RecipeImportConfidence.low) ...[
+                    const SizedBox(height: 14),
+                    Text(
+                      'This draft can still be useful, but plan on reviewing ingredients and directions carefully in the editor.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF7B5138),
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
@@ -596,7 +693,11 @@ class _RecipeImportSheetState extends State<_RecipeImportSheet> {
                 Expanded(
                   child: FilledButton(
                     onPressed: hasInput ? () => _submit(result.draft) : null,
-                    child: const Text('Review in editor'),
+                    child: Text(switch (result.confidence) {
+                      RecipeImportConfidence.high => 'Review in editor',
+                      RecipeImportConfidence.medium => 'Review carefully',
+                      RecipeImportConfidence.low => 'Open draft for cleanup',
+                    }),
                   ),
                 ),
               ],
@@ -730,6 +831,96 @@ class _RecipeImportSheetState extends State<_RecipeImportSheet> {
         });
       }
     }
+  }
+}
+
+class _ImportConfidenceCard extends StatelessWidget {
+  const _ImportConfidenceCard({required this.result});
+
+  final RecipeImportResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final (label, color, icon) = switch (result.confidence) {
+      RecipeImportConfidence.high => (
+        'High confidence',
+        const Color(0xFFE6F1E0),
+        Icons.verified_outlined,
+      ),
+      RecipeImportConfidence.medium => (
+        'Medium confidence',
+        const Color(0xFFF7EBCB),
+        Icons.rule_folder_outlined,
+      ),
+      RecipeImportConfidence.low => (
+        'Low confidence',
+        const Color(0xFFF7DED8),
+        Icons.construction_outlined,
+      ),
+    };
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: theme.textTheme.titleMedium),
+                const SizedBox(height: 4),
+                Text(
+                  'Import score ${result.confidenceScore}/100. Use the checklist below to confirm what parsed cleanly before saving.',
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ImportCheckChip extends StatelessWidget {
+  const _ImportCheckChip({required this.check});
+
+  final RecipeImportCheck check;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: check.detail,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: check.isReady
+              ? const Color(0xFFE6F1E0)
+              : const Color(0xFFF7DED8),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              check.isReady ? Icons.check_circle_outline : Icons.edit_outlined,
+              size: 18,
+            ),
+            const SizedBox(width: 8),
+            Text(check.label),
+          ],
+        ),
+      ),
+    );
   }
 }
 
